@@ -1,1 +1,8 @@
-
+{
+  "ownerId": "clawguard-official",
+  "slug": "clawguard-skill-auditor",
+  "version": "1.0.0",
+  "publishedAt": 1773386761000,
+  "description": "Enterprise-grade static and dynamic security analyzer for autonomous agent Skills.",
+  "tags": ["security", "audit", "sast", "clawguard"]
+}
