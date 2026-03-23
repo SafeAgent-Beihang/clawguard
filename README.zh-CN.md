@@ -20,6 +20,8 @@ ClawGuard 是一套**整体防护方案**，通过多个安全模块相互配合
 
 **后续还会持续发布更多安全模块**，扩展防护能力。
 
+🤝 **未来合作**：我们将与 **[AI-Infra-Guard](https://github.com/Tencent/AI-Infra-Guard)** 等开源项目合作，共建安全能力。
+
 ClawGuard 特别适合需要让 Agent 执行代码、访问文件或调用外部 API 的场景，帮助降低安全风险。
 
 ## 🧩 模块介绍
