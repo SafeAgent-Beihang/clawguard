@@ -22,6 +22,8 @@ ClawGuard is a **comprehensive security solution** that uses multiple security m
 
 **More security modules will be released in the future** to expand the protection capabilities.
 
+🤝 **Future Collaboration**: We will collaborate with open-source projects like **[AI-Infra-Guard](https://github.com/Tencent/AI-Infra-Guard)** to co-build security capabilities.
+
 ClawGuard is particularly suitable for scenarios where agents need to execute code, access files, or call external APIs.
 
 ## 🧩 Modules
