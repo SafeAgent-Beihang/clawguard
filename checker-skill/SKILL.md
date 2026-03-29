@@ -1,20 +1,13 @@
 ---
 name: clawguard-security-checker
-version: 1.0.0
-description: ClawGuard Enterprise Security Checker - Advanced configuration analysis, runtime integrity verification, permission modeling, and quantum-resistant integrity checking for OpenClaw environments
-author: ClawGuard Team
-homepage: https://github.com/clawguard/security-checker
+description: ClawGuard Security Checker v3 - Advanced configuration analysis, runtime integrity verification, permission modeling, and one-click hardening recommendations
 metadata:
   category: security
-  risk: safe
-  requires:
-    bins: [node, python3, jq, grep, sha256sum, openssl, stat, ls]
-    python: [pyyaml, cryptography]
 ---
 
-# ClawGuard Security Checker (CG-SC)
+# 🔧 ClawGuard Security Checker (CG-SC) v3
 
-Enterprise-grade security configuration analyzer and runtime integrity verifier for OpenClaw environments. Provides comprehensive security posture assessment with advanced configuration analysis, permission modeling, and quantum-resistant cryptographic verification.
+Enterprise-grade security configuration analyzer and runtime integrity verifier for OpenClaw environments. Provides comprehensive security posture assessment with advanced configuration analysis, permission modeling, and one-click hardening recommendations.
 
 ## When to Use
 
@@ -22,6 +15,7 @@ Activate ClawGuard Checker when:
 - A user asks to check the security status of the OpenClaw instance
 - Periodic security review is needed
 - After configuration changes
+- User asks for "security check", "hardening", or "how to secure"
 
 ## How to Execute
 
@@ -54,18 +48,19 @@ Verify these permissions:
 - Trusted proxies should be limited
 - Rate limiting should be enabled
 
-### Step 5: Check Logs
-Review recent logs for:
-- Authentication failures
-- Privilege escalation attempts
-- Suspicious commands
+### Step 5: Generate Hardening Recommendations (v3)
+
+Based on findings, generate specific recommendations:
+- **CRITICAL issues**: Generate immediate fix
+- **HIGH issues**: Generate configuration changes
+- **MEDIUM issues**: Suggest improvements
 
 ### Step 6: Output Result
 Calculate security score and output:
 - Score: 0-100
 - Grade: A+ to F
 - List of issues found
-- Recommendations
+- **Hardening recommendations (v3)**
 
 ## Purpose
 
@@ -77,18 +72,7 @@ ClawGuard Security Checker is the second line of defense, providing continuous s
 - **Network Security**: Multi-layered network policy validation
 - **Log Forensics**: AI-powered anomaly detection in audit logs
 - **Compliance**: Security benchmark compliance checking
-
-## Prerequisites
-
-### Authorization Requirements
-- Read access to OpenClaw configuration directory (`~/.openclaw/`)
-- Read access to system logs
-- Network analysis capabilities (optional)
-
-### Environment Setup
-- Node.js 18+ runtime
-- Python 3.8+ runtime
-- OpenClaw instance running or recently ran
+- **Hardening (v3)**: One-click security configuration generation
 
 ## Core Workflow
 
@@ -128,13 +112,7 @@ ClawGuard Security Checker is the second line of defense, providing continuous s
                 │ PASS
                 ▼
     ┌───────────────────────┐
-    │  6. LOG FORENSICS     │ ← Anomaly detection in logs
-    └───────────┬───────────┘
-                │ PASS
-                ▼
-    ┌───────────────────────┐
-    │  7. COMPLIANCE        │ ← Benchmark compliance checking
-    │     CHECKING           │
+    │  6. HARDENING (v3)   │ ← Generate security recommendations
     └───────────┬───────────┘
                 │ PASS
                 ▼
@@ -196,42 +174,27 @@ The analyzer examines `openclaw.json` for security-relevant settings:
 
 | Check | Severity | Points | Detection Rule |
 |-------|----------|--------|----------------|
-| API Key in config | CRITICAL | -20 | Regex: `sk-*[a-zA-Z0-9]` |
-| Gateway bind 0.0.0.0 | HIGH | -15 | `gateway.bind === "0.0.0.0"` |
-| Gateway bind lan | HIGH | -10 | `gateway.bind === "lan"` |
-| CORS * allowed | MEDIUM | -5 | `allowedOrigins.includes("*")` |
-| tools.profile full | HIGH | -10 | `tools.profile === "full"` |
-| Device auth disabled | HIGH | -10 | `deviceAuth === false` |
+| Gateway bind 0.0.0.0 | CRITICAL | -20 | `gateway.bind === "0.0.0.0"` |
+| Gateway bind lan | HIGH | -15 | `gateway.bind === "lan"` |
+| CORS * allowed | HIGH | -15 | `allowedOrigins.includes("*")` |
+| tools.exec.security = "full" | CRITICAL | -20 | `tools.exec.security === "full"` |
+| Device auth disabled | HIGH | -15 | `deviceAuth === false` |
 | Token expiry > 24h | MEDIUM | -5 | `tokenExpiry > 86400` |
-| TLS not enabled | MEDIUM | -10 | `tls.enabled === false` |
-| fs.workspaceOnly false | HIGH | -10 | `fs.workspaceOnly === false` |
+| TLS not enabled | HIGH | -15 | `tls.enabled === false` |
+| fs.workspaceOnly false | HIGH | -15 | `fs.workspaceOnly === false` |
+| Sandbox disabled | HIGH | -15 | `sandbox.enabled === false` |
 | No egress restrictions | HIGH | -10 | `network.egressRestrictions === false` |
 
-### Enhanced Credential Detection
+### Hardening Recommendations (v3)
 
-ClawGuard uses multi-pattern detection for exposed credentials:
-
-```javascript
-const CREDENTIAL_PATTERNS = [
-  // API Keys
-  { pattern: /sk-[a-zA-Z0-9]{20,}/g, type: 'openai_key', severity: 'CRITICAL' },
-  { pattern: /sk-ant-[a-zA-Z0-9_-]{20,}/g, type: 'anthropic_key', severity: 'CRITICAL' },
-  { pattern: /AKIA[0-9A-Z]{16}/g, type: 'aws_access_key', severity: 'CRITICAL' },
-  { pattern: /ghp_[a-zA-Z0-9]{36}/g, type: 'github_token', severity: 'CRITICAL' },
-  { pattern: /gho_[a-zA-Z0-9]{36}/g, type: 'github_oauth', severity: 'CRITICAL' },
-  { pattern: /glpat-[a-zA-Z0-9_-]{20}/g, type: 'gitlab_token', severity: 'CRITICAL' },
-  { pattern: /[a-zA-Z0-9_-]*:[a-zA-Z0-9_-]+@/g, type: 'url_credentials', severity: 'HIGH' },
-
-  // Private Keys
-  { pattern: /-----BEGIN (RSA |DSA |EC |OPENSSH) PRIVATE KEY-----/g, type: 'private_key', severity: 'CRITICAL' },
-  { pattern: /-----BEGIN PGP PRIVATE KEY BLOCK-----/g, type: 'pgp_key', severity: 'CRITICAL' },
-
-  // Generic Secrets
-  { pattern: /api[_-]?key["\s:=]+[a-zA-Z0-9]{16,}/gi, type: 'api_key', severity: 'HIGH' },
-  { pattern: /secret["\s:=]+["'][a-zA-Z0-9]{16,}["']/gi, type: 'secret', severity: 'HIGH' },
-  { pattern: /password["\s:=]+["'][^"']+["']/gi, type: 'password', severity: 'HIGH' },
-];
-```
+| Issue | Current | Recommended |
+|-------|---------|-------------|
+| Gateway bind | `"0.0.0.0"` | `"127.0.0.1"` |
+| Auth mode | `null` or `"none"` | `"token"` |
+| Exec security | `"full"` | `"allowlist"` |
+| Sandbox | `enabled: false` | `enabled: true` |
+| TLS | `enabled: false` | `enabled: true` |
+| CORS | `origin: "*"` | `origin: ["your-domain.com"]` |
 
 ## Phase 2: Credential Exposure Detection
 
@@ -244,6 +207,27 @@ const CREDENTIAL_PATTERNS = [
 | Layer 3 | Log files | Historical credential check |
 | Layer 4 | Memory dumps | Process memory (optional) |
 
+### Enhanced Credential Detection (v3)
+
+```javascript
+const CREDENTIAL_PATTERNS = [
+  // API Keys
+  { pattern: /sk-[a-zA-Z0-9]{20,}/g, type: 'openai_key', severity: 'CRITICAL' },
+  { pattern: /sk-ant-[a-zA-Z0-9_-]{20,}/g, type: 'anthropic_key', severity: 'CRITICAL' },
+  { pattern: /AKIA[0-9A-Z]{16}/g, type: 'aws_access_key', severity: 'CRITICAL' },
+  { pattern: /ghp_[a-zA-Z0-9]{36}/g, type: 'github_token', severity: 'CRITICAL' },
+  { pattern: /gho_[a-zA-Z0-9]{36}/g, type: 'github_oauth', severity: 'CRITICAL' },
+  { pattern: /glpat-[a-zA-Z0-9_-]{20}/g, type: 'gitlab_token', severity: 'CRITICAL' },
+
+  // Private Keys
+  { pattern: /-----BEGIN (RSA |DSA |EC |OPENSSH) PRIVATE KEY-----/g, type: 'private_key', severity: 'CRITICAL' },
+
+  // Generic Secrets
+  { pattern: /api[_-]?key["\s:=]+[a-zA-Z0-9]{16,}/gi, type: 'api_key', severity: 'HIGH' },
+  { pattern: /password["\s:=]+["'][^"']{8,}["']/gi, type: 'password', severity: 'HIGH' },
+];
+```
+
 ### Detection Rules
 
 | Credential Type | Pattern | Severity | Action |
@@ -252,8 +236,7 @@ const CREDENTIAL_PATTERNS = [
 | GitHub Token | `ghp_...` | CRITICAL | Alert + Revoke |
 | OpenAI Key | `sk-...` | CRITICAL | Alert + Revoke |
 | Private Key | `-----BEGIN...` | CRITICAL | Alert + Alert SOC |
-| Database URL | `postgres://...` | HIGH | Alert |
-| Generic Secret | `api_key=...` | HIGH | Review |
+| Weak Password | < 12 chars | HIGH | Alert + Change |
 
 ## Phase 3: Permission Modeling
 
@@ -263,7 +246,6 @@ const CREDENTIAL_PATTERNS = [
 const CRITICAL_PATHS = [
   { path: '~/.openclaw/openclaw.json', expectedMode: '600', severity: 'HIGH' },
   { path: '~/.openclaw/', expectedMode: '700', severity: 'HIGH' },
-  { path: '/workspace/', expectedMode: '750', severity: 'MEDIUM' },
   { path: '~/.ssh/', expectedMode: '700', severity: 'CRITICAL' },
   { path: '~/.aws/', expectedMode: '700', severity: 'CRITICAL' },
 ];
@@ -275,222 +257,131 @@ const CRITICAL_PATHS = [
 |-------|----------|--------|------|
 | Config file world-readable | CRITICAL | -20 | Mode & 007 !== 0 |
 | Config file group-readable | HIGH | -10 | Mode & 070 !== 0 |
-| Workspace world-writable | HIGH | -15 | Mode & 002 !== 0 |
 | SSH keys world-readable | CRITICAL | -20 | Mode & 004 !== 0 |
 | Running as root | CRITICAL | -25 | UID === 0 |
-| Skill directory +x | MEDIUM | -5 | Mode & 001 !== 0 |
+| Workspace world-writable | HIGH | -15 | Mode & 002 !== 0 |
 
-### Advanced Permission Modeling
-
-ClawGuard performs **capability-based permission analysis**:
-
-```javascript
-const PERMISSION_MATRIX = {
-  'filesystem.read': {
-    'workspace': { allowed: true, scope: 'read-only' },
-    'home': { allowed: false, scope: 'denied' },
-    'system': { allowed: false, scope: 'denied' }
-  },
-  'filesystem.write': {
-    'workspace': { allowed: true, scope: 'read-write' },
-    'home': { allowed: false, scope: 'denied' },
-    'system': { allowed: false, scope: 'denied' }
-  },
-  'network.egress': {
-    'trusted': { allowed: true, scope: 'whitelisted domains' },
-    'untrusted': { allowed: false, scope: 'denied' }
-  },
-  'execution': {
-    'tools': { allowed: true, scope: 'tool whitelist' },
-    'arbitrary': { allowed: false, scope: 'denied' }
-  }
-};
-```
-
-## Phase 4: Runtime Integrity Verification
-
-### Multi-Layer Integrity Checking
-
-#### Layer 1: SHA-256 Baseline
-
-```javascript
-const BASELINE_FILES = [
-  '/usr/local/lib/openclaw/core.js',
-  '/usr/local/lib/openclaw/gateway.js',
-  '/usr/local/lib/openclaw/tools/*.js',
-  '/workspace/skills/*/SKILL.md'
-];
-```
-
-#### Layer 2: Quantum-Resistant Hashing
-
-ClawGuard uses **SPHINCS+** signatures for future-proof integrity:
-
-```javascript
-const QUANTUM_RESISTANT_ALGORITHMS = [
-  'SHAKE256',    // SHA-3 extendable output
-  'SHA3-512',    // SHA-3 with 512-bit output
-  'BLAKE3',      // Fast hash with HMAC
-];
-```
-
-#### Layer 3: Signed Baseline
-
-```
-┌─────────────────────────────────────────────────────┐
-│            INTEGRITY VERIFICATION CHAIN             │
-├─────────────────────────────────────────────────────┤
-│ 1. Generate file manifests                         │
-│ 2. Compute SHA-256 for each file                   │
-│ 3. Create merkle tree of hashes                    │
-│ 4. Sign root hash with Ed25519 (hybrid: RSA-4096) │
-│ 5. Store baseline in TPM (if available)           │
-│ 6. On check: verify signature + all hashes        │
-└─────────────────────────────────────────────────────┘
-```
-
-### Integrity Check Results
-
-| Check | Status | Action |
-|-------|--------|--------|
-| Core files unchanged | ✓ | Continue |
-| Core files modified | ✗ | Alert + Quarantine |
-| Skill files unchanged | ✓ | Continue |
-| New skill detected | ? | Trigger Auditor |
-| Signature valid | ✓ | Continue |
-| Signature invalid | ✗ | Alert + Verify manually |
-
-## Phase 5: Network Security Analysis
+## Phase 4: Network Security Analysis
 
 ### Port and Binding Analysis
 
 | Check | Severity | Points | Detection |
 |-------|----------|--------|-----------|
-| Gateway on 0.0.0.0 | HIGH | -15 | Exposed to all interfaces |
-| Gateway on lan | MEDIUM | -10 | Exposed to local network |
+| Gateway on 0.0.0.0 | CRITICAL | -20 | Exposed to all interfaces |
+| Gateway on lan | HIGH | -15 | Exposed to local network |
 | Gateway on localhost | LOW | 0 | Only local access |
-| Non-standard port | LOW | -2 | Port != 8080/8443 |
+| TLS disabled | HIGH | -15 | Unencrypted communication |
 
-### Advanced Network Analysis
+### Network Security Checks
 
 ```javascript
 const NETWORK_SECURITY_CHECKS = [
-  {
-    check: 'trusted_proxies',
-    rule: (config) => config.trustedProxies?.length <= 2,
-    severity: 'MEDIUM',
-    points: -5,
-    message: 'Limited proxy trust for reverse proxy setups'
-  },
   {
     check: 'rate_limiting',
     rule: (config) => config.rateLimit?.enabled === true,
     severity: 'HIGH',
     points: -10,
-    message: 'Rate limiting not enabled'
+    message: 'Rate limiting not enabled',
+    fix: { rateLimit: { enabled: true, max: 100, windowMs: 60000 } }
   },
   {
     check: 'egress_whitelist',
     rule: (config) => config.network?.allowedDomains?.length > 0,
     severity: 'HIGH',
     points: -10,
-    message: 'No egress domain whitelist configured'
+    message: 'No egress domain whitelist configured',
+    fix: { network: { allowedDomains: ['api.github.com', 'api.openai.com'] } }
   },
   {
-    check: 'dns_restrictions',
-    rule: (config) => config.network?.dnsWhitelist?.length > 0,
+    check: 'trusted_proxies',
+    rule: (config) => config.trustedProxies?.length <= 2,
     severity: 'MEDIUM',
     points: -5,
-    message: 'No DNS restriction configured'
+    message: 'Limited proxy trust configured'
   }
 ];
 ```
 
-### Firewall Status Verification
+## Phase 5: Hardening Recommendations (v3 核心功能)
 
-| Check | Severity | Points |
-|-------|----------|--------|
-| iptables active | LOW | 0 |
-| UFW active | LOW | 0 |
-| No firewall | MEDIUM | -5 |
-| Docker network isolated | LOW | 0 |
+### One-Click Hardening
 
-## Phase 6: Log Forensics
-
-### Log Analysis Engine
-
-ClawGuard analyzes logs for:
-
-1. **Authentication Failures**: Repeated failed logins
-2. **Privilege Escalation**: sudo/permission change attempts
-3. **Data Exfiltration**: Large data transfers
-4. **Red Line Triggers**: Security policy violations
-5. **Anomaly Detection**: Unusual patterns using ML
-
-### Anomaly Detection Rules
+Based on detected issues, generate hardened configuration:
 
 ```javascript
-const LOG_ANOMALY_PATTERNS = [
-  {
-    name: 'brute_force',
-    pattern: /authentication failure/i,
-    threshold: 10,
-    window: '5m',
-    severity: 'HIGH'
+const HARDEENING_RULES = {
+  // Gateway Hardening
+  gateway: {
+    bind: { value: '127.0.0.1', reason: 'Only local access' },
+    tls: { value: { enabled: true }, reason: 'Encrypted communication' },
+    auth: { value: { mode: 'token', token: '<GENERATE>' }, reason: 'Authentication required' },
+    rateLimit: { value: { enabled: true, max: 100, windowMs: 60000 }, reason: 'DDoS protection' },
+    cors: { value: { enabled: true, origin: [], credentials: true }, reason: 'Controlled access' }
   },
-  {
-    name: 'mass_file_access',
-    pattern: /file read.*\.{5,}/i,
-    threshold: 100,
-    window: '1m',
-    severity: 'MEDIUM'
+
+  // Tools Hardening
+  tools: {
+    exec: {
+      security: { value: 'allowlist', reason: 'Controlled execution' },
+      allowlist: { value: ['ls', 'cat', 'grep', 'find', 'echo', 'pwd'], reason: 'Minimal command set' }
+    },
+    fs: {
+      workspaceOnly: { value: true, reason: 'File system isolation' }
+    }
   },
-  {
-    name: 'data_exfiltration',
-    pattern: /(curl|wget).*post.*\d{4,}/i,
-    threshold: 1,
-    window: '1h',
-    severity: 'CRITICAL'
-  },
-  {
-    name: 'privilege_escalation',
-    pattern: /(sudo|chmod|chown).*(root|777)/i,
-    threshold: 1,
-    window: '5m',
-    severity: 'CRITICAL'
-  },
-  {
-    name: 'red_line_trigger',
-    pattern: /REDLINE:.*/i,
-    threshold: 1,
-    window: '0',
-    severity: 'CRITICAL'
+
+  // Sandbox Hardening
+  sandbox: {
+    enabled: { value: true, reason: 'Runtime isolation' },
+    allowedPaths: { value: ['/tmp', '~/workspace'], reason: 'Controlled file access' },
+    deniedPaths: { value: ['/home', '/root', '/etc', '/var'], reason: 'Protect system files' },
+    maxMemory: { value: 512, reason: 'Resource limit' },
+    timeout: { value: 60000, reason: 'Execution timeout' }
   }
-];
+};
 ```
 
-## Phase 7: Compliance Checking
+### Hardened Config Example
 
-### Security Benchmarks
-
-| Benchmark | Framework | Checks |
-|-----------|-----------|--------|
-| CIS Docker | CIS Docker Benchmark | 20 checks |
-| NSA Docker | NSA Docker Guide | 15 checks |
-| CISA KSC | CISA Kubernetes | 25 checks |
-| Custom | ClawGuard Best Practices | 30 checks |
-
-### Compliance Report
-
-```
-COMPLIANCE SUMMARY
-═══════════════════
-CIS Docker Benchmark:     15/20 (75%)
-NSA Docker Guide:        12/15 (80%)
-CISA KSC:               18/25 (72%)
-ClawGuard Best Practices: 25/30 (83%)
-
-OVERALL: B (80%)
+```json
+{
+  "gateway": {
+    "bind": "127.0.0.1",
+    "auth": {
+      "mode": "token",
+      "token": "<GENERATE: crypto.randomBytes(32).toString('hex')>"
+    },
+    "tls": {
+      "enabled": true
+    },
+    "rateLimit": {
+      "enabled": true,
+      "max": 100,
+      "windowMs": 60000
+    }
+  },
+  "tools": {
+    "exec": {
+      "security": "allowlist",
+      "allowlist": ["ls", "cat", "grep", "find", "echo", "pwd"]
+    },
+    "fs": {
+      "workspaceOnly": true
+    }
+  },
+  "sandbox": {
+    "enabled": true,
+    "allowedPaths": ["/tmp", "~/workspace"],
+    "deniedPaths": ["/home", "/root", "/etc", "/var"],
+    "maxMemory": 512,
+    "timeout": 60000
+  },
+  "logging": {
+    "enabled": true,
+    "level": "info",
+    "auditLog": true
+  }
+}
 ```
 
 ## Security Scoring
@@ -498,15 +389,13 @@ OVERALL: B (80%)
 ### Scoring Formula
 
 ```
-SECURITY_SCORE = 100 - CONFIG_PENALTY - CREDENTIAL_PENALTY - PERMISSION_PENALTY - INTEGRITY_PENALTY - NETWORK_PENALTY - LOG_PENALTY
+SECURITY_SCORE = 100 - CONFIG_PENALTY - CREDENTIAL_PENALTY - PERMISSION_PENALTY - NETWORK_PENALTY
 
 Where:
-- CONFIG_PENALTY = Sum of all config check points (negative)
-- CREDENTIAL_PENALTY = Critical * 20 + High * 10 + Medium * 5
-- PERMISSION_PENALTY = Sum of permission check points
-- INTEGRITY_PENALTY = Failed checks * 15
-- NETWORK_PENALTY = Sum of network check points
-- LOG_PENALTY = Critical * 15 + High * 10 + Medium * 5
+- CONFIG_PENALTY = CRITICAL*20 + HIGH*15 + MEDIUM*5
+- CREDENTIAL_PENALTY = CRITICAL*25 + HIGH*15 + MEDIUM*5
+- PERMISSION_PENALTY = CRITICAL*25 + HIGH*15 + MEDIUM*5
+- NETWORK_PENALTY = CRITICAL*20 + HIGH*15 + MEDIUM*5
 ```
 
 ### Score Classification
@@ -522,165 +411,66 @@ Where:
 
 ## Output Formats
 
-### JSON Report
-
-```json
-{
-  "report_id": "CGSC-2026-0001",
-  "timestamp": "2026-03-14T10:30:00Z",
-  "instance": {
-    "name": "openclaw-abc123",
-    "version": "2026.3.11",
-    "deployment": "docker"
-  },
-  "security_score": 82,
-  "grade": "B",
-  "checks": {
-    "configuration": {
-      "score": -15,
-      "issues": [
-        {
-          "severity": "HIGH",
-          "check": "gateway_bind_lan",
-          "message": "Gateway bound to lan interface",
-          "location": "openclaw.json:gateway.bind"
-        }
-      ]
-    },
-    "credentials": {
-      "score": 0,
-      "issues": []
-    },
-    "permissions": {
-      "score": -5,
-      "issues": [
-        {
-          "severity": "MEDIUM",
-          "check": "workspace_permission",
-          "message": "Workspace directory mode 755, recommended 750"
-        }
-      ]
-    },
-    "integrity": {
-      "score": 0,
-      "status": "VERIFIED",
-      "files_checked": 45
-    },
-    "network": {
-      "score": -8,
-      "issues": []
-    },
-    "logs": {
-      "score": 0,
-      "anomalies": []
-    }
-  },
-  "compliance": {
-    "cis_docker": "75%",
-    "nsa_docker": "80%",
-    "clawguard": "83%"
-  },
-  "recommendations": [
-    "Change gateway.bind from 'lan' to 'localhost'",
-    "Set workspace directory mode to 750"
-  ]
-}
-```
-
-### Terminal Output
+### Terminal Output (v3)
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║        🛡️ CLAWGUARD SECURITY CHECK REPORT v1.0.0          ║
+║        🔧 CLAWGUARD SECURITY CHECK REPORT v3.0.0   ║
 ╠══════════════════════════════════════════════════════════════╣
-║ Instance: openclaw-abc123                                  ║
-║ Version: 2026.3.11                                        ║
-║ Deployment: Docker                                        ║
-║ Time: 2026-03-14 10:30:00 UTC                            ║
+║ Instance: openclaw-abc123                              ║
+║ Time: YYYY-MM-DD HH:MM:SS                             ║
 ╚══════════════════════════════════════════════════════════════╝
 
-▶ CONFIGURATION SECURITY [-15]
-  ⚠️ [HIGH] Gateway bind: lan (recommend: localhost)
-  ✓ TLS enabled
-  ✓ Device auth enabled
-  ✓ Token expiry: 3600s
+▶ GATEWAY SECURITY [-35]
+  🔴 [CRITICAL] Gateway bind: 0.0.0.0 (exposed)
+     Fix: Set gateway.bind = "127.0.0.1"
+  🔴 [CRITICAL] Auth disabled
+     Fix: Set gateway.auth.mode = "token"
+  🟡 [HIGH] TLS not enabled
+     Fix: Set gateway.tls.enabled = true
 
-▶ CREDENTIAL EXPOSURE [0]
-  ✓ No exposed credentials detected
-  ✓ No secrets in environment
-  ✓ No credentials in logs
+▶ TOOLS SECURITY [-20]
+  🔴 [CRITICAL] Exec security: full
+     Fix: Set tools.exec.security = "allowlist"
+     and add: tools.exec.allowlist = ["ls", "cat", "grep", ...]
 
-▶ PERMISSION MODELING [-5]
-  ⚠️ [MEDIUM] Workspace mode 755 (recommend 750)
+▶ SANDBOX [-15]
+  🟠 [HIGH] Sandbox disabled
+     Fix: Set sandbox.enabled = true
+
+▶ CREDENTIALS [0]
+  ✓ No exposed credentials
+
+▶ PERMISSIONS [0]
   ✓ Config file mode 600
-  ✓ OpenClaw directory mode 700
-
-▶ RUNTIME INTEGRITY [0]
-  ✓ Core files verified
-  ✓ Signatures valid
-  ✓ Baseline current
-
-▶ NETWORK SECURITY [-8]
-  ⚠️ [MEDIUM] Limited trusted proxies
-  ✓ Port 8080 (non-standard)
-  ✓ No direct internet exposure
-
-▶ LOG FORENSICS [0]
-  ✓ No authentication failures
-  ✓ No red line triggers
-  ✓ No data exfiltration attempts
-
-▶ COMPLIANCE
-  CIS Docker: 75% | NSA Docker: 80% | ClawGuard: 83%
+  ✓ Directory mode 700
 
 ╔══════════════════════════════════════════════════════════════╗
-║ SECURITY GRADE: B (82/100)                                ║
+║ SECURITY GRADE: F (30/100)                              ║
 ╠══════════════════════════════════════════════════════════════╣
-║ CRITICAL: 0 | HIGH: 1 | MEDIUM: 2 | LOW: 1              ║
+║ CRITICAL: 3 | HIGH: 2 | MEDIUM: 0                     ║
 ╠══════════════════════════════════════════════════════════════╣
-║ RECOMMENDATIONS:                                           ║
-║ 1. Change gateway.bind to 'localhost'                      ║
-║ 2. Set workspace directory mode to 750                     ║
+║ 🛡️ HARDENING RECOMMENDATION (v3)                      ║
+║                                                        ║
+║ Run with --fix to generate hardened configuration:     ║
+║   node cli.js --fix                                   ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
 
-## Integration with OpenClaw
+## v3 vs v2 Features
 
-### Automatic Scanning
-
-Configure automatic security checks in `openclaw.json`:
-
-```json
-{
-  "security": {
-    "clawguard": {
-      "checker": {
-        "enabled": true,
-        "schedule": "0 2 * * *",  // Daily at 2 AM
-        "auto_remediate": false,
-        "alert_on_fail": true
-      }
-    }
-  }
-}
-```
-
-### Manual Check
-
-```bash
-# Run security check
-clawguard check --full
-
-# Run specific check
-clawguard check --config
-clawguard check --permissions
-clawguard check --integrity
-```
-
-## Author
-
-**ClawGuard Team** - Enterprise Security for Autonomous Agents
+| Feature | v2 | v3 |
+|---------|----|----|
+| Configuration Analysis | ✅ | ✅ |
+| Credential Detection | ✅ | ✅ |
+| Permission Modeling | ✅ | ✅ |
+| Network Security | ✅ | ✅ |
+| Log Forensics | ✅ | ✅ |
+| **Hardening Recommendations** | ❌ | **✅ (v3)** |
+| **One-Click Fix Generation** | ❌ | **✅ (v3)** |
+| **Automated Config Generation** | ❌ | **✅ (v3)** |
+| **Security Grade A-F** | Basic | **Enhanced (v3)** |
 
 ---
 
-*ClawGuard Security Checker: Vigilant protection for your AI agents.* 🦅
+*ClawGuard Security Checker: Vigilant protection for your AI agents.* 🔧

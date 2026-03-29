@@ -1,0 +1,26 @@
+{
+  "name": "clawguard-self-improving-safety",
+  "version": "1.0.0",
+  "description": "Self-improving safety module for ClawGuard",
+  "main": "src/safety.js",
+  "bin": {
+    "clawguard-safety": "./cli.js"
+  },
+  "scripts": {
+    "start": "node cli.js monitor",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "security",
+    "clawguard",
+    "safety",
+    "self-improving"
+  ],
+  "author": "ClawGuard Team",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "fs-extra": "^10.0.0",
+    "yargs": "^17.0.0"
+  }
+}

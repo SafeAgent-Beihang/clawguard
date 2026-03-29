@@ -1,562 +1,548 @@
 /**
- * ClawGuard Security Checker
- *
- * Enterprise-grade security configuration analyzer and runtime integrity verifier
+ * ClawGuard v3 - Checker 核心引擎
+ * 配置检查 + 智能加固建议
  */
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 const crypto = require('crypto');
 
-class SecurityChecker {
-  constructor(config = {}) {
-    this.config = {
-      openclawDir: config.openclawDir || path.join(process.env.HOME || '/home/node', '.openclaw'),
-      workspaceDir: config.workspaceDir || '/workspace',
-      ...config
+/**
+ * Helper function to safely access nested object properties
+ * Compatible with older Node.js versions (pre-14)
+ */
+function getNestedValue(obj, ...keys) {
+  return keys.reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
+}
+
+class Checker {
+  constructor(options = {}) {
+    this.options = {
+      deep: options.deep || false,
+      ...options
     };
-
-    this.checkId = this.generateCheckId();
-    this.issues = [];
-  }
-
-  generateCheckId() {
-    const timestamp = Date.now().toString(36);
-    const random = crypto.randomBytes(4).toString('hex');
-    return `CGSC-${timestamp}-${random}`.toUpperCase();
+    this.rules = this.loadRules();
   }
 
   /**
-   * Run all security checks
+   * 加载检查规则
    */
-  async runFullCheck() {
+  loadRules() {
+    return {
+      // ===== 配置检查规则 =====
+      configRules: [
+        {
+          id: 'CFG001',
+          check: (config) => (getNestedValue(config, 'gateway', 'bind') && getNestedValue(config, 'gateway', 'bind').includes('0.0.0.0')) || getNestedValue(config, 'gateway', 'bind') === '*',
+          severity: 3,
+          title: 'Gateway 绑定到所有网络接口',
+          description: 'OpenClaw 网关配置为监听所有网络接口，使实例暴露在网络中',
+          impact: '外部网络可直接访问你的 OpenClaw',
+          risk: 'CRITICAL'
+        },
+        {
+          id: 'CFG002',
+          check: (config) => !getNestedValue(config, 'gateway', 'auth', 'mode') || getNestedValue(config, 'gateway', 'auth', 'mode') === 'none',
+          severity: 3,
+          title: 'Gateway 未启用认证',
+          description: 'OpenClaw 网关未配置身份认证',
+          impact: '任何人都可以连接你的 OpenClaw',
+          risk: 'CRITICAL'
+        },
+        {
+          id: 'CFG003',
+          check: (config) => getNestedValue(config, 'tools', 'exec', 'security') === 'full',
+          severity: 3,
+          title: '允许执行任意 Shell 命令',
+          description: 'tools.exec.security 配置为 full，允许执行所有 Shell 命令',
+          impact: '攻击者可执行任意系统命令',
+          risk: 'CRITICAL'
+        },
+        {
+          id: 'CFG004',
+          check: (config) => getNestedValue(config, 'tools', 'exec', 'security') === 'deny',
+          severity: 1,
+          title: '禁止执行所有 Shell 命令',
+          description: 'tools.exec.security 配置为 deny，禁止执行所有系统命令',
+          impact: '部分功能可能无法使用',
+          risk: 'INFO'
+        },
+        {
+          id: 'CFG005',
+          check: (config) => !getNestedValue(config, 'sandbox', 'enabled') || getNestedValue(config, 'sandbox', 'enabled') === false,
+          severity: 2,
+          title: '沙箱已禁用',
+          description: '沙箱未启用，无法限制文件访问范围',
+          impact: 'Skill 可能访问系统敏感文件',
+          risk: 'WARNING'
+        },
+        {
+          id: 'CFG006',
+          check: (config) => getNestedValue(config, 'gateway', 'auth', 'mode') === 'token' && !getNestedValue(config, 'gateway', 'auth', 'token'),
+          severity: 2,
+          title: 'Token 认证未设置 Token',
+          description: '认证模式为 token 但未设置实际的 token 值',
+          impact: '认证配置不完整',
+          risk: 'WARNING'
+        },
+        {
+          id: 'CFG007',
+          check: (config) => getNestedValue(config, 'gateway', 'port') && getNestedValue(config, 'gateway', 'port') < 1024,
+          severity: 1,
+          title: 'Gateway 使用特权端口',
+          description: 'Gateway 端口号小于 1024，需要 root 权限',
+          impact: '可能与其他服务冲突',
+          risk: 'INFO'
+        },
+        {
+          id: 'CFG008',
+          check: (config) => !getNestedValue(config, 'gateway', 'tls', 'enabled') && getNestedValue(config, 'gateway', 'tls') === false,
+          severity: 2,
+          title: 'Gateway 未启用 TLS',
+          description: 'Gateway 未配置 TLS 加密',
+          impact: '通信内容可能被窃听',
+          risk: 'WARNING'
+        },
+        {
+          id: 'CFG009',
+          check: (config) => getNestedValue(config, 'tools', 'exec', 'allowlist') && getNestedValue(config, 'tools', 'exec', 'allowlist').length === 0,
+          severity: 2,
+          title: '命令白名单为空',
+          description: '配置了 allowlist 模式但未添加任何允许的命令',
+          impact: '将无法执行任何系统命令',
+          risk: 'WARNING'
+        },
+        {
+          id: 'CFG010',
+          check: (config) => getNestedValue(config, 'sandbox', 'maxMemory') && getNestedValue(config, 'sandbox', 'maxMemory') < 128,
+          severity: 1,
+          title: '沙箱内存限制过低',
+          description: '沙箱内存限制小于 128MB',
+          impact: '可能影响正常运行',
+          risk: 'INFO'
+        }
+      ],
+
+      // ===== 凭证检查规则 =====
+      credentialRules: [
+        {
+          id: 'CRED001',
+          check: (config) => getNestedValue(config, 'gateway', 'auth', 'token') && getNestedValue(config, 'gateway', 'auth', 'token').length < 32,
+          severity: 2,
+          title: 'Token 强度不足',
+          description: 'Gateway token 长度小于 32 字符',
+          impact: 'Token 可能被暴力破解',
+          risk: 'WARNING'
+        },
+        {
+          id: 'CRED002',
+          check: (config) => getNestedValue(config, 'gateway', 'auth', 'password') && getNestedValue(config, 'gateway', 'auth', 'password').length < 12,
+          severity: 2,
+          title: '密码强度不足',
+          description: 'Gateway 密码长度小于 12 字符',
+          impact: '密码可能被暴力破解',
+          risk: 'WARNING'
+        },
+        {
+          id: 'CRED003',
+          check: (config) => getNestedValue(config, 'gateway', 'auth', 'password') === 'password' ||
+                            getNestedValue(config, 'gateway', 'auth', 'token') === 'token' ||
+                            getNestedValue(config, 'gateway', 'auth', 'password') === 'admin',
+          severity: 3,
+          title: '使用默认/弱密码',
+          description: '检测到使用常见弱密码',
+          impact: '极易被破解',
+          risk: 'CRITICAL'
+        }
+      ],
+
+      // ===== 网络检查规则 =====
+      networkRules: [
+        {
+          id: 'NET001',
+          check: (config) => getNestedValue(config, 'gateway', 'cors', 'enabled') && getNestedValue(config, 'gateway', 'cors', 'origin') === '*',
+          severity: 2,
+          title: 'CORS 允许所有来源',
+          description: 'Gateway CORS 配置允许所有来源访问',
+          impact: '可能被跨站请求利用',
+          risk: 'WARNING'
+        },
+        {
+          id: 'NET002',
+          check: (config) => getNestedValue(config, 'gateway', 'rateLimit', 'enabled') === false,
+          severity: 1,
+          title: '未启用速率限制',
+          description: 'Gateway 未配置速率限制',
+          impact: '可能遭受暴力破解或 DoS 攻击',
+          risk: 'INFO'
+        },
+        {
+          id: 'NET003',
+          check: (config) => getNestedValue(config, 'gateway', 'rateLimit', 'max') && getNestedValue(config, 'gateway', 'rateLimit', 'max') < 10,
+          severity: 1,
+          title: '速率限制过于严格',
+          description: '速率限制值过小，可能影响正常使用',
+          impact: '正常请求可能被限制',
+          risk: 'INFO'
+        }
+      ],
+
+      // ===== 沙箱检查规则 =====
+      sandboxRules: [
+        {
+          id: 'SBOX001',
+          check: (config) => getNestedValue(config, 'sandbox', 'enabled') && !(getNestedValue(config, 'sandbox', 'allowedPaths') && getNestedValue(config, 'sandbox', 'allowedPaths').length),
+          severity: 2,
+          title: '沙箱未配置允许路径',
+          description: '沙箱已启用但未配置 allowedPaths',
+          impact: '可能无法限制文件访问范围',
+          risk: 'WARNING'
+        },
+        {
+          id: 'SBOX002',
+          check: (config) => getNestedValue(config, 'sandbox', 'deniedPaths') && getNestedValue(config, 'sandbox', 'deniedPaths').length > 0 &&
+                            !(getNestedValue(config, 'sandbox', 'deniedPaths') && getNestedValue(config, 'sandbox', 'deniedPaths').some(p => p.includes('/home'))),
+          severity: 1,
+          title: '沙箱未禁止访问用户目录',
+          description: '沙箱配置了禁止路径但未包含 /home',
+          impact: '可能访问用户敏感文件',
+          risk: 'INFO'
+        },
+        {
+          id: 'SBOX003',
+          check: (config) => !getNestedValue(config, 'sandbox', 'timeout') || getNestedValue(config, 'sandbox', 'timeout') > 300000,
+          severity: 1,
+          title: '沙箱超时时间过长',
+          description: '沙箱执行超时设置大于 5 分钟',
+          impact: '可能占用过多系统资源',
+          risk: 'INFO'
+        }
+      ]
+    };
+  }
+
+  /**
+   * 执行配置检查
+   */
+  async check(configPath) {
     const startTime = Date.now();
-    console.log(`[${this.checkId}] Starting security check`);
-
-    const result = {
-      check_id: this.checkId,
+    const report = {
+      version: '3.0.0',
       timestamp: new Date().toISOString(),
-      instance: await this.getInstanceInfo(),
-      security_score: 100,
-      grade: 'A',
-      checks: {},
-      compliance: {},
-      recommendations: []
+      configPath: path.resolve(configPath),
+      findings: [],
+      riskScore: 0,
+      maxSeverity: 0,
+      sections: {},
+      hardeningAdvice: []
     };
 
-    try {
-      // Run all check phases
-      result.checks.configuration = await this.checkConfiguration();
-      result.checks.credentials = await this.checkCredentials();
-      result.checks.permissions = await this.checkPermissions();
-      result.checks.integrity = await this.checkIntegrity();
-      result.checks.network = await this.checkNetwork();
-      result.checks.logs = await this.checkLogs();
-
-      // Calculate security score
-      result.security_score = this.calculateScore(result.checks);
-      result.grade = this.getGrade(result.security_score);
-
-      // Generate recommendations
-      result.recommendations = this.generateRecommendations(result.checks);
-
-      // Compliance checks
-      result.compliance = await this.checkCompliance(result.checks);
-
-    } catch (error) {
-      console.error(`[${this.checkId}] Check error:`, error);
-      result.error = error.message;
+    // 1. 读取配置
+    console.log('  📋 读取配置文件...');
+    const config = this.loadConfig(configPath);
+    if (!config) {
+      report.findings.push({
+        id: 'CFG000',
+        severity: 3,
+        title: '配置文件读取失败',
+        description: `无法读取配置文件: ${configPath}`,
+        risk: 'CRITICAL'
+      });
+      report.maxSeverity = 3;
+      return report;
     }
+    report.config = config;
 
-    result.duration_ms = Date.now() - startTime;
-    console.log(`[${this.checkId}] Security check complete: ${result.grade} (${result.security_score})`);
+    // 2. 执行所有检查
+    console.log('  🔍 执行配置检查...');
+    const allRules = [
+      ...this.rules.configRules,
+      ...this.rules.credentialRules,
+      ...this.rules.networkRules,
+      ...this.rules.sandboxRules
+    ];
 
-    return result;
-  }
-
-  /**
-   * Get instance information
-   */
-  async getInstanceInfo() {
-    const info = {
-      name: 'unknown',
-      version: 'unknown',
-      deployment: 'unknown'
-    };
-
-    try {
-      // Try to get version
+    for (const rule of allRules) {
       try {
-        const version = execSync('openclaw --version', { encoding: 'utf-8' });
-        info.version = version.trim();
-      } catch (e) {
-        info.version = 'unknown';
-      }
-
-      // Check deployment type
-      if (fs.existsSync('/.dockerenv')) {
-        info.deployment = 'docker';
-      } else if (fs.existsSync('/run/.containerenv')) {
-        info.deployment = 'podman';
-      } else {
-        info.deployment = 'local';
-      }
-
-      // Get instance name from config
-      const configPath = path.join(this.config.openclawDir, 'openclaw.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        info.name = config.instanceName || config.name || 'default';
-      }
-
-    } catch (e) {
-      // Ignore errors
-    }
-
-    return info;
-  }
-
-  /**
-   * Phase 1: Configuration Analysis
-   */
-  async checkConfiguration() {
-    const issues = [];
-    let score = 0;
-
-    const configPath = path.join(this.config.openclawDir, 'openclaw.json');
-
-    if (!fs.existsSync(configPath)) {
-      issues.push({
-        severity: 'HIGH',
-        check: 'config_file_missing',
-        message: 'openclaw.json not found',
-        location: configPath
-      });
-      return { score: -20, issues };
-    }
-
-    try {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-
-      // Check gateway bind
-      if (config.gateway && config.gateway.bind === '0.0.0.0') {
-        issues.push({
-          severity: 'HIGH',
-          check: 'gateway_bind_all',
-          message: 'Gateway bound to all interfaces (0.0.0.0)',
-          location: 'openclaw.json:gateway.bind'
-        });
-        score -= 15;
-      } else if (config.gateway && config.gateway.bind === 'lan') {
-        issues.push({
-          severity: 'MEDIUM',
-          check: 'gateway_bind_lan',
-          message: 'Gateway bound to lan interface',
-          location: 'openclaw.json:gateway.bind'
-        });
-        score -= 10;
-      }
-
-      // Check TLS
-      if (!config.gateway || !config.gateway.tls || !config.gateway.tls.enabled) {
-        issues.push({
-          severity: 'MEDIUM',
-          check: 'tls_disabled',
-          message: 'TLS not enabled for gateway',
-          location: 'openclaw.json:gateway.tls'
-        });
-        score -= 10;
-      }
-
-      // Check device auth
-      if (config.gateway && config.gateway.auth && config.gateway.auth.deviceAuth === false) {
-        issues.push({
-          severity: 'HIGH',
-          check: 'device_auth_disabled',
-          message: 'Device authentication disabled',
-          location: 'openclaw.json:gateway.auth.deviceAuth'
-        });
-        score -= 10;
-      }
-
-      // Check CORS
-      const allowedOrigins = (config.gateway && config.gateway.cors && config.gateway.cors.allowedOrigins) || [];
-      if (allowedOrigins.includes('*')) {
-        issues.push({
-          severity: 'MEDIUM',
-          check: 'cors_wildcard',
-          message: 'CORS allows all origins (*)',
-          location: 'openclaw.json:gateway.cors.allowedOrigins'
-        });
-        score -= 5;
-      }
-
-      // Check tools profile
-      if (config.tools && config.tools.profile === 'full') {
-        issues.push({
-          severity: 'HIGH',
-          check: 'tools_profile_full',
-          message: 'Tools profile set to full access',
-          location: 'openclaw.json:tools.profile'
-        });
-        score -= 10;
-      }
-
-      // Check filesystem restrictions
-      if (config.tools && config.tools.fs && config.tools.fs.workspaceOnly === false) {
-        issues.push({
-          severity: 'HIGH',
-          check: 'fs_workspace_only_false',
-          message: 'Filesystem access not restricted to workspace',
-          location: 'openclaw.json:tools.fs.workspaceOnly'
-        });
-        score -= 10;
-      }
-
-      // Check network egress restrictions
-      if (config.tools && config.tools.network && config.tools.network.egressRestrictions === false) {
-        issues.push({
-          severity: 'HIGH',
-          check: 'egress_not_restricted',
-          message: 'Network egress not restricted',
-          location: 'openclaw.json:tools.network.egressRestrictions'
-        });
-        score -= 10;
-      }
-
-    } catch (e) {
-      issues.push({
-        severity: 'CRITICAL',
-        check: 'config_parse_error',
-        message: `Failed to parse config: ${e.message}`
-      });
-      score -= 20;
-    }
-
-    return { score, issues };
-  }
-
-  /**
-   * Phase 2: Credential Exposure Detection
-   */
-  async checkCredentials() {
-    const issues = [];
-    let score = 0;
-
-    const credentialPatterns = [
-      { pattern: /sk-[a-zA-Z0-9]{20,}/g, type: 'openai_key', severity: 'CRITICAL' },
-      { pattern: /sk-ant-[a-zA-Z0-9_-]{20,}/g, type: 'anthropic_key', severity: 'CRITICAL' },
-      { pattern: /AKIA[0-9A-Z]{16}/g, type: 'aws_key', severity: 'CRITICAL' },
-      { pattern: /ghp_[a-zA-Z0-9]{36}/g, type: 'github_token', severity: 'CRITICAL' },
-      { pattern: /-----BEGIN.*PRIVATE KEY-----/g, type: 'private_key', severity: 'CRITICAL' },
-    ];
-
-    // Check config file
-    const configPath = path.join(this.config.openclawDir, 'openclaw.json');
-    if (fs.existsSync(configPath)) {
-      const content = fs.readFileSync(configPath, 'utf-8');
-      for (const { pattern, type, severity } of credentialPatterns) {
-        if (pattern.test(content)) {
-          issues.push({
-            severity,
-            check: 'credential_exposed',
-            message: `Exposed ${type} in configuration`,
-            location: configPath
-          });
-          score -= severity === 'CRITICAL' ? 20 : 10;
+        if (rule.check(config)) {
+          const finding = {
+            id: rule.id,
+            severity: rule.severity,
+            title: rule.title,
+            description: rule.description,
+            impact: rule.impact,
+            risk: rule.risk,
+            recommendation: this.getRecommendation(rule.id, config)
+          };
+          report.findings.push(finding);
+          report.maxSeverity = Math.max(report.maxSeverity, rule.severity);
         }
+      } catch (e) {
+        // 忽略检查错误
       }
     }
 
-    // Check .env files
-    const envPath = path.join(this.config.openclawDir, '.env');
-    if (fs.existsSync(envPath)) {
-      issues.push({
-        severity: 'MEDIUM',
-        check: 'env_file_exists',
-        message: '.env file found in config directory',
-        location: envPath
-      });
-      score -= 5;
+    // 3. 深度检查（如果启用）
+    if (this.options.deep) {
+      console.log('  🔬 执行深度检查...');
+      const deepFindings = await this.deepCheck(config);
+      report.findings.push(...deepFindings);
+      report.sections = { deepCheck: deepFindings };
     }
 
-    return { score, issues };
+    // 4. 计算风险评分
+    report.riskScore = this.calculateRiskScore(report.findings);
+
+    // 5. 生成加固建议
+    report.hardeningAdvice = this.generateHardeningAdvice(report.findings);
+
+    report.duration = Date.now() - startTime;
+
+    // 6. 打印摘要
+    this.printSummary(report);
+
+    return report;
   }
 
   /**
-   * Phase 3: Permission Modeling
+   * 读取配置文件
    */
-  async checkPermissions() {
-    const issues = [];
-    let score = 0;
-
-    // Check config file permissions
-    const configPath = path.join(this.config.openclawDir, 'openclaw.json');
-    if (fs.existsSync(configPath)) {
-      const stat = fs.statSync(configPath);
-      const mode = stat.mode & 0o777;
-
-      if (mode & 0o004) { // World readable
-        issues.push({
-          severity: 'HIGH',
-          check: 'config_world_readable',
-          message: 'Configuration file is world-readable',
-          location: configPath
-        });
-        score -= 15;
-      }
-
-      if (mode & 0o002) { // World writable
-        issues.push({
-          severity: 'CRITICAL',
-          check: 'config_world_writable',
-          message: 'Configuration file is world-writable',
-          location: configPath
-        });
-        score -= 20;
-      }
-
-      if (!(mode & 0o040)) { // Not group readable
-        issues.push({
-          severity: 'MEDIUM',
-          check: 'config_not_group_readable',
-          message: 'Configuration file is not group-readable'
-        });
-        score -= 5;
-      }
-    }
-
-    // Check OpenClaw directory permissions
-    if (fs.existsSync(this.config.openclawDir)) {
-      const stat = fs.statSync(this.config.openclawDir);
-      const mode = stat.mode & 0o777;
-
-      if (mode & 0o002) {
-        issues.push({
-          severity: 'HIGH',
-          check: 'openclaw_dir_world_writable',
-          message: 'OpenClaw directory is world-writable'
-        });
-        score -= 10;
-      }
-    }
-
-    // Check if running as root
-    if (process.getuid && process.getuid() === 0) {
-      issues.push({
-        severity: 'CRITICAL',
-        check: 'running_as_root',
-        message: 'OpenClaw is running as root user',
-        location: 'process'
-      });
-      score -= 25;
-    }
-
-    return { score, issues };
-  }
-
-  /**
-   * Phase 4: Runtime Integrity
-   */
-  async checkIntegrity() {
-    const issues = [];
-    let score = 0;
-
-    // Check if baseline exists
-    const baselinePath = path.join(this.config.openclawDir, '.baseline.json');
-
-    if (!fs.existsSync(baselinePath)) {
-      issues.push({
-        severity: 'MEDIUM',
-        check: 'no_baseline',
-        message: 'No integrity baseline found - run baseline setup',
-        location: baselinePath
-      });
-      score -= 5;
-      return { score, issues, status: 'NO_BASELINE' };
-    }
-
+  loadConfig(configPath) {
     try {
-      const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf-8'));
-      const filesChecked = (baseline.files && baseline.files.length) || 0;
-
-      // In production, would verify hashes here
-      // For now, just report baseline exists
-
-      return {
-        score,
-        issues,
-        status: 'VERIFIED',
-        files_checked: filesChecked
-      };
+      const content = fs.readFileSync(configPath, 'utf-8');
+      return JSON.parse(content);
     } catch (e) {
-      issues.push({
-        severity: 'HIGH',
-        check: 'baseline_error',
-        message: `Failed to verify baseline: ${e.message}`
-      });
-      score -= 10;
-      return { score, issues, status: 'ERROR' };
+      return null;
     }
   }
 
   /**
-   * Phase 5: Network Security
+   * 深度检查
    */
-  async checkNetwork() {
-    const issues = [];
-    let score = 0;
+  async deepCheck(config) {
+    const findings = [];
 
-    const configPath = path.join(this.config.openclawDir, 'openclaw.json');
-
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-
-      // Check trusted proxies
-      const trustedProxies = (config.gateway && config.gateway.trustedProxies) || [];
-      if (trustedProxies.length > 2) {
-        issues.push({
-          severity: 'MEDIUM',
-          check: 'many_trusted_proxies',
-          message: 'Multiple trusted proxies configured',
-          location: 'openclaw.json:gateway.trustedProxies'
+    // 检查配置文件权限
+    try {
+      const stat = fs.statSync(this.options.configPath);
+      const mode = stat.mode & 0o777;
+      if ((mode & 0o004) !== 0) {
+        findings.push({
+          id: 'DEEP001',
+          severity: 2,
+          title: '配置文件权限过于宽松',
+          description: `配置文件可被其他用户读取 (权限: ${mode.toString(8)})`,
+          impact: '其他用户可能读取敏感配置',
+          risk: 'WARNING',
+          recommendation: '执行: chmod 600 ' + this.options.configPath
         });
-        score -= 5;
       }
+    } catch (e) {
+      // 忽略
+    }
 
-      // Check rate limiting
-      if (!config.gateway || !config.gateway.rateLimit || !config.gateway.rateLimit.enabled) {
-        issues.push({
-          severity: 'MEDIUM',
-          check: 'rate_limiting_disabled',
-          message: 'Rate limiting not enabled'
+    // 检查 Token 是否可预测
+    if (getNestedValue(config, 'gateway', 'auth', 'token')) {
+      const token = getNestedValue(config, 'gateway', 'auth', 'token');
+      const entropy = this.calculateEntropy(token);
+      if (entropy < 3.5) {
+        findings.push({
+          id: 'DEEP002',
+          severity: 2,
+          title: 'Token 熵值过低',
+          description: 'Token 随机性不足，可能被猜测',
+          impact: 'Token 安全性不足',
+          risk: 'WARNING',
+          recommendation: '使用更随机的 Token (建议使用 crypto.randomBytes(32).toString("hex"))'
         });
-        score -= 5;
-      }
-
-      // Check egress whitelist
-      const allowedDomains = (config.tools && config.tools.network && config.tools.network.allowedDomains) || [];
-      if (allowedDomains.length === 0) {
-        issues.push({
-          severity: 'HIGH',
-          check: 'no_egress_whitelist',
-          message: 'No egress domain whitelist configured'
-        });
-        score -= 10;
       }
     }
 
-    return { score, issues };
+    return findings;
   }
 
   /**
-   * Phase 6: Log Forensics
+   * 计算字符串熵值
    */
-  async checkLogs() {
-    const issues = [];
-    let score = 0;
-
-    const logDir = path.join(this.config.openclawDir, 'logs');
-
-    if (!fs.existsSync(logDir)) {
-      issues.push({
-        severity: 'MEDIUM',
-        check: 'no_logs',
-        message: 'No log directory found'
-      });
-      score -= 5;
-      return { score, issues, anomalies: [] };
+  calculateEntropy(str) {
+    const freq = {};
+    for (const char of str) {
+      freq[char] = (freq[char] || 0) + 1;
     }
 
-    // Check for recent critical events
-    const anomalyPatterns = [
-      { pattern: /REDLINE:/i, name: 'red_line_trigger', severity: 'CRITICAL' },
-      { pattern: /authentication failure/i, name: 'auth_failure', severity: 'HIGH' },
-      { pattern: /data exfiltration/i, name: 'data_exfil', severity: 'CRITICAL' },
-    ];
+    let entropy = 0;
+    const len = str.length;
+    for (const char in freq) {
+      const p = freq[char] / len;
+      entropy -= p * Math.log2(p);
+    }
 
-    // In production, would analyze actual log files
-    // For now, return empty results
-
-    return { score, issues, anomalies: [] };
+    return entropy;
   }
 
   /**
-   * Phase 7: Compliance Checking
+   * 获取修复建议
    */
-  async checkCompliance(checks) {
-    // Simplified compliance checking
-    const compliance = {
-      cis_docker: '85%',
-      nsa_docker: '80%',
-      clawguard: '85%'
+  getRecommendation(ruleId, config) {
+    const adviceMap = {
+      'CFG001': '将 gateway.bind 改为 "127.0.0.1" 或使用防火墙限制来源',
+      'CFG002': '启用认证: gateway.auth.mode = "token" 并设置 gateway.auth.token',
+      'CFG003': '改为 allowlist 模式: tools.exec.security = "allowlist" 并添加允许的命令',
+      'CFG004': '根据需要逐步添加允许的命令到 tools.exec.allowlist',
+      'CFG005': '启用沙箱: sandbox.enabled = true',
+      'CFG006': '设置有效的 gateway.auth.token (建议 32+ 字符)',
+      'CFG007': '考虑使用非特权端口 (如 18789)',
+      'CFG008': '启用 TLS: gateway.tls.enabled = true',
+      'CFG009': '添加允许的命令列表: tools.exec.allowlist = ["ls", "cat", "grep", ...]',
+      'CFG010': '设置合理的内存限制: sandbox.maxMemory = 256 或更高',
+      'CRED001': '使用更长的 Token: crypto.randomBytes(32).toString("hex")',
+      'CRED002': '使用更强的密码 (12+ 字符，包含特殊字符)',
+      'CRED003': '立即修改为强密码或 Token',
+      'NET001': '将 CORS origin 设置为具体的域名列表',
+      'NET002': '启用速率限制: gateway.rateLimit.enabled = true',
+      'NET003': '适当提高速率限制值',
+      'SBOX001': '配置沙箱允许路径: sandbox.allowedPaths = ["/tmp", "~/workspace"]',
+      'SBOX002': '添加用户目录到禁止列表: sandbox.deniedPaths = ["/home", "/root", "/etc"]',
+      'SBOX003': '设置合理的超时时间: sandbox.timeout = 60000 (1分钟)'
     };
 
-    return compliance;
+    return adviceMap[ruleId] || '请参考 OpenClaw 官方文档进行修复';
   }
 
   /**
-   * Calculate security score
+   * 计算风险评分
    */
-  calculateScore(checks) {
-    let score = 100;
-
-    // Sum all check penalties
-    score += (checks.configuration && checks.configuration.score) || 0;
-    score += (checks.credentials && checks.credentials.score) || 0;
-    score += (checks.permissions && checks.permissions.score) || 0;
-    score += (checks.integrity && checks.integrity.score) || 0;
-    score += (checks.network && checks.network.score) || 0;
-    score += (checks.logs && checks.logs.score) || 0;
-
-    return Math.max(0, Math.min(100, score));
+  calculateRiskScore(findings) {
+    let score = 0;
+    for (const f of findings) {
+      switch (f.severity) {
+        case 3: score += 30; break;
+        case 2: score += 15; break;
+        case 1: score += 5; break;
+      }
+    }
+    return Math.min(100, score);
   }
 
   /**
-   * Get grade from score
+   * 生成加固建议
    */
-  getGrade(score) {
-    if (score >= 95) return 'A+';
-    if (score >= 90) return 'A';
-    if (score >= 80) return 'B';
-    if (score >= 70) return 'C';
-    if (score >= 60) return 'D';
-    return 'F';
+  generateHardeningAdvice(findings) {
+    const advice = findings.map(f => ({
+      id: f.id,
+      title: f.title,
+      current: f.description,
+      recommended: f.recommendation,
+      priority: f.severity === 3 ? 'HIGH' : f.severity === 2 ? 'MEDIUM' : 'LOW'
+    }));
+
+    return advice.sort((a, b) => {
+      const priorityOrder = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+      return priorityOrder[a.priority] - priorityOrder[b.priority];
+    });
   }
 
   /**
-   * Generate recommendations
+   * 生成加固配置
    */
-  generateRecommendations(checks) {
-    const recommendations = [];
-    const seen = new Set();
+  generateHardenedConfig(report) {
+    const original = report.config || {};
+    const hardened = JSON.parse(JSON.stringify(original));
 
-    for (const [category, data] of Object.entries(checks)) {
-      for (const issue of (data.issues || [])) {
-        const key = `${category}-${issue.check}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-
-          if (issue.severity === 'CRITICAL' || issue.severity === 'HIGH') {
-            recommendations.push({
-              priority: issue.severity,
-              message: issue.message,
-              category
-            });
+    // 应用加固建议
+    for (const finding of report.findings) {
+      switch (finding.id) {
+        case 'CFG001':
+          hardened.gateway = hardened.gateway || {};
+          hardened.gateway.bind = '127.0.0.1';
+          break;
+        case 'CFG002':
+          hardened.gateway = hardened.gateway || {};
+          hardened.gateway.auth = hardened.gateway.auth || {};
+          hardened.gateway.auth.mode = 'token';
+          if (!hardened.gateway.auth.token) {
+            hardened.gateway.auth.token = crypto.randomBytes(32).toString('hex');
           }
-        }
+          break;
+        case 'CFG003':
+          hardened.tools = hardened.tools || {};
+          hardened.tools.exec = hardened.tools.exec || {};
+          hardened.tools.exec.security = 'allowlist';
+          hardened.tools.exec.allowlist = hardened.tools.exec.allowlist || ['ls', 'cat', 'grep', 'find', 'echo', 'pwd', 'cd'];
+          break;
+        case 'CFG005':
+          hardened.sandbox = hardened.sandbox || {};
+          hardened.sandbox.enabled = true;
+          break;
+        case 'CFG008':
+          hardened.gateway = hardened.gateway || {};
+          hardened.gateway.tls = hardened.gateway.tls || {};
+          hardened.gateway.tls.enabled = true;
+          break;
+        case 'NET001':
+          hardened.gateway = hardened.gateway || {};
+          hardened.gateway.cors = hardened.gateway.cors || {};
+          hardened.gateway.cors.origin = [];
+          break;
+        case 'NET002':
+          hardened.gateway = hardened.gateway || {};
+          hardened.gateway.rateLimit = hardened.gateway.rateLimit || {};
+          hardened.gateway.rateLimit.enabled = true;
+          hardened.gateway.rateLimit.max = hardened.gateway.rateLimit.max || 100;
+          break;
+        case 'SBOX001':
+          hardened.sandbox = hardened.sandbox || {};
+          hardened.sandbox.allowedPaths = ['/tmp', '~/workspace'];
+          break;
+        case 'SBOX002':
+          hardened.sandbox = hardened.sandbox || {};
+          hardened.sandbox.deniedPaths = hardened.sandbox.deniedPaths || [];
+          if (!hardened.sandbox.deniedPaths.includes('/home')) {
+            hardened.sandbox.deniedPaths.push('/home', '/root', '/etc');
+          }
+          break;
       }
     }
 
-    // Sort by priority
-    recommendations.sort((a, b) => {
-      const priority = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-      return priority[a.priority] - priority[b.priority];
-    });
+    return hardened;
+  }
 
-    return recommendations;
+  /**
+   * 打印摘要
+   */
+  printSummary(report) {
+    const severityLabels = {
+      0: '✅ 安全',
+      1: '🟢 提示',
+      2: '🟡 警告',
+      3: '🔴 严重'
+    };
+
+    console.log('╔═══════════════════════════════════════════════════════════╗');
+    console.log('║                  📊 检查摘要                           ║');
+    console.log('╠═══════════════════════════════════════════════════════════╣');
+    console.log(`║  配置文件: ${path.basename(report.configPath).padEnd(45)}║`);
+    console.log(`║  风险评分: ${report.riskScore}/100`.padEnd(50) + '║');
+    console.log(`║  最高风险: ${severityLabels[report.maxSeverity].padEnd(45)}║`);
+    console.log(`║  发现问题: ${report.findings.length} 项`.padEnd(49) + '║');
+    console.log(`║  耗时: ${report.duration}ms`.padEnd(50) + '║');
+    console.log('╚═══════════════════════════════════════════════════════════╝');
+
+    // 打印问题列表
+    if (report.findings.length > 0) {
+      console.log('\n⚠️  发现问题:');
+      report.findings.forEach((f, i) => {
+        const icon = f.severity >= 3 ? '🔴' : f.severity >= 2 ? '🟡' : '🟢';
+        console.log(`  ${i + 1}. ${icon} ${f.title}`);
+        console.log(`     → ${f.impact}`);
+      });
+
+      console.log('\n💡 修复建议:');
+      report.findings.forEach((f, i) => {
+        console.log(`  ${i + 1}. ${f.title}: ${f.recommendation}`);
+      });
+    }
   }
 }
 
-module.exports = SecurityChecker;
+module.exports = { Checker };

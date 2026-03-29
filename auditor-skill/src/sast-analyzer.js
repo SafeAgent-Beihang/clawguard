@@ -1,330 +1,405 @@
 /**
- * ClawGuard SAST Analyzer
- *
- * Advanced Static Application Security Testing for Skills
- * Comprehensive detection of execution risks, network anomalies, obfuscation, and more
+ * ClawGuard v3 - SAST 静态代码分析器
+ * 100+ 威胁检测规则
  */
+
+const fs = require('fs');
+const path = require('path');
 
 class SASTAnalyzer {
   constructor() {
-    this.findings = [];
-
-    // Initialize detection patterns
-    this.initPatterns();
-  }
-
-  initPatterns() {
-    // Critical execution risks
-    this.executionRisks = [
-      { pattern: /\beval\s*\(/gi, type: 'dynamic_execution', severity: 'CRITICAL' },
-      { pattern: /\bexec\s*\(/gi, type: 'dynamic_execution', severity: 'CRITICAL' },
-      { pattern: /__import__\s*\(/gi, type: 'dynamic_import', severity: 'CRITICAL' },
-      { pattern: /\bcompile\s*\(/gi, type: 'dynamic_compilation', severity: 'HIGH' },
-      { pattern: /new\s+Function\s*\(/gi, type: 'dynamic_function', severity: 'CRITICAL' },
-      { pattern: /child_process\.execSync/gi, type: 'command_execution', severity: 'HIGH' },
-      { pattern: /child_process\.exec\s*\(/gi, type: 'command_execution', severity: 'HIGH' },
-      { pattern: /child_process\.spawn\s*\(/gi, type: 'process_spawning', severity: 'HIGH' },
-      { pattern: /subprocess\.(Popen|call|run|check_output)/gi, type: 'command_execution', severity: 'HIGH' },
-      { pattern: /os\.system\s*\(/gi, type: 'shell_execution', severity: 'HIGH' },
-      { pattern: /os\.popen\s*\(/gi, type: 'shell_execution', severity: 'HIGH' },
-      { pattern: /\bpopen\s*\(/gi, type: 'shell_execution', severity: 'HIGH' },
-      { pattern: /Runtime\.exec\s*\(/gi, type: 'command_execution', severity: 'HIGH' },
-      { pattern: /ProcessBuilder/gi, type: 'process_building', severity: 'HIGH' },
-    ];
-
-    // Network anomaly patterns
-    this.networkPatterns = [
-      { pattern: /curl\s+.*[?&](token|key|password|secret)=/gi, type: 'credential_exfiltration', severity: 'CRITICAL' },
-      { pattern: /wget\s+.*[?&](token|key|password|secret)=/gi, type: 'credential_exfiltration', severity: 'CRITICAL' },
-      { pattern: /curl\s+.*-d\s+.*[A-Za-z0-9+/]{20,}/gi, type: 'data_exfiltration', severity: 'CRITICAL' },
-      { pattern: /bash\s+-i\s+.*\/?dev\/tcp\//gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /nc\s+.*-e\s+/gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /ncat\s+.*-e\s+/gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /socat\s+.*TCP:.*EXEC:/gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /python.*socket.*connect.*exec/gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /perl.*socket.*connect/gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /php.*fsockopen/gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /node.*child_process.*net\.Socket/gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /powershell.*-NoP.*-NonI/gi, type: 'reverse_shell', severity: 'CRITICAL' },
-      { pattern: /\b(exec|system|spawn)\s*\(.*\$_(GET|POST|REQUEST|ENV)/gi, type: 'command_injection', severity: 'CRITICAL' },
-      { pattern: /exec\s*\(\s*`/gi, type: 'shell_injection', severity: 'CRITICAL' },
-    ];
-
-    // File system threats
-    this.fileSystemPatterns = [
-      { pattern: /readFile\s*\(\s*['"`]\/etc\/passwd/gi, type: 'sensitive_file_read', severity: 'HIGH' },
-      { pattern: /readFile\s*\(\s*['"`]\/etc\/shadow/gi, type: 'sensitive_file_read', severity: 'CRITICAL' },
-      { pattern: /readFile\s*\(\s*['"`]\/\.ssh\//gi, type: 'credential_access', severity: 'CRITICAL' },
-      { pattern: /readFile\s*\(\s*['"`]\/\.aws\//gi, type: 'credential_access', severity: 'CRITICAL' },
-      { pattern: /readFile\s*\(\s*['"`]\/\.kube\//gi, type: 'credential_access', severity: 'CRITICAL' },
-      { pattern: /readFile\s*\(\s*['"`]\.env/gi, type: 'credential_access', severity: 'HIGH' },
-      { pattern: /writeFile\s*\(\s*['"`]\/\.ssh\/authorized_keys/gi, type: 'persistence', severity: 'CRITICAL' },
-      { pattern: /writeFile\s*\(\s*['"`]\/etc\/cron/gi, type: 'persistence', severity: 'CRITICAL' },
-      { pattern: /writeFile\s*\(\s*['"`]\.bashrc/gi, type: 'persistence', severity: 'HIGH' },
-      { pattern: /appendFile\s*\(\s*['"`]\/etc\/cron/gi, type: 'persistence', severity: 'CRITICAL' },
-      { pattern: /echo.*>>\s*\/etc\/crontab/gi, type: 'persistence', severity: 'CRITICAL' },
-      { pattern: /crontab\s+-e/gi, type: 'persistence', severity: 'HIGH' },
-      { pattern: /chmod\s+777/gi, type: 'privilege_escalation', severity: 'HIGH' },
-      { pattern: /chown\s+/gi, type: 'privilege_escalation', severity: 'HIGH' },
-      { pattern: /sudo\s+/gi, type: 'privilege_escalation', severity: 'HIGH' },
-    ];
-
-    // Obfuscation patterns
-    this.obfuscationPatterns = [
-      { pattern: /fromCharCode\s*\(/gi, type: 'code_obfuscation', severity: 'MEDIUM' },
-      { pattern: /\beval\s*\(atob\s*\(/gi, type: 'obfuscated_execution', severity: 'CRITICAL' },
-      { pattern: /String\.fromCharCode\s*\(/gi, type: 'obfuscation', severity: 'MEDIUM' },
-      { pattern: /\[!\+\[\]\]/gi, type: 'jsfuck_obfuscation', severity: 'CRITICAL' },
-      { pattern: /\\x[0-9a-fA-F]{2}/gi, type: 'hex_obfuscation', severity: 'MEDIUM' },
-      { pattern: /\\u[0-9a-fA-F]{4}/gi, type: 'unicode_obfuscation', severity: 'MEDIUM' },
-      { pattern: /\u200B|\u200C|\u200D|\uFEFF/gi, type: 'zero_width_characters', severity: 'CRITICAL' },
-      { pattern: /\u202A|\u202B|\u202C|\u202D|\u202E/gi, type: 'bidi_override', severity: 'CRITICAL' },
-      { pattern: /atob\s*\(/gi, type: 'base64_decode', severity: 'MEDIUM' },
-      { pattern: /btoa\s*\(/gi, type: 'base64_encode', severity: 'MEDIUM' },
-      { pattern: /concat\s*\(\s*['"`][a-zA-Z]+['"`]\)/gi, type: 'string_splitting', severity: 'MEDIUM' },
-      { pattern: /\.split\s*\(\s*['"`]\s*['"`]\s*\)\.join/gi, type: 'string_splitting', severity: 'MEDIUM' },
-    ];
-
-    // Environment access patterns
-    this.envAccessPatterns = [
-      { pattern: /process\.env\.[A-Z_]+/gi, type: 'env_access', severity: 'MEDIUM' },
-      { pattern: /os\.environ\[/gi, type: 'env_access', severity: 'MEDIUM' },
-      { pattern: /getenv\s*\(/gi, type: 'env_access', severity: 'MEDIUM' },
-      { pattern: /process\.env\.(API_KEY|TOKEN|SECRET|PASSWORD|PRIVATE)/gi, type: 'credential_access', severity: 'HIGH' },
-    ];
+    this.rules = this.loadRules();
   }
 
   /**
-   * Analyze content (markdown + code blocks)
+   * 加载检测规则
    */
-  analyzeContent(content) {
-    const findings = [];
-
-    // Extract code blocks from markdown
-    const codeBlockPattern = /```(\w+)?\n([\s\S]*?)```/g;
-    let match;
-
-    while ((match = codeBlockPattern.exec(content)) !== null) {
-      const language = match[1] || 'text';
-      const code = match[2];
-
-      if (['bash', 'shell', 'sh', 'zsh', 'javascript', 'js', 'python', 'py', 'ruby', 'go', 'java', 'php'].includes(language)) {
-        const codeFindings = this.analyzeCode(code, `inline:${language}`);
-        findings.push(...codeFindings);
-      }
-    }
-
-    // Check for hidden code in comments
-    const hiddenCodeFindings = this.detectHiddenCode(content);
-    findings.push(...hiddenCodeFindings);
-
-    return findings;
-  }
-
-  /**
-   * Analyze code
-   */
-  analyzeCode(code, location) {
-    const findings = [];
-
-    // Check execution risks
-    for (const pattern of this.executionRisks) {
-      const matches = this.findMatches(code, pattern.pattern);
-      for (const match of matches) {
-        findings.push({
-          severity: pattern.severity,
-          category: pattern.type,
-          title: this.getTitle(pattern.type),
-          location: location,
-          evidence: match,
-          recommendation: this.getRecommendation(pattern.type)
-        });
-      }
-    }
-
-    // Check network patterns
-    for (const pattern of this.networkPatterns) {
-      const matches = this.findMatches(code, pattern.pattern);
-      for (const match of matches) {
-        findings.push({
-          severity: pattern.severity,
-          category: pattern.type,
-          title: this.getTitle(pattern.type),
-          location: location,
-          evidence: match,
-          recommendation: this.getRecommendation(pattern.type)
-        });
-      }
-    }
-
-    // Check file system patterns
-    for (const pattern of this.fileSystemPatterns) {
-      const matches = this.findMatches(code, pattern.pattern);
-      for (const match of matches) {
-        findings.push({
-          severity: pattern.severity,
-          category: pattern.type,
-          title: this.getTitle(pattern.type),
-          location: location,
-          evidence: match,
-          recommendation: this.getRecommendation(pattern.type)
-        });
-      }
-    }
-
-    // Check obfuscation
-    for (const pattern of this.obfuscationPatterns) {
-      const matches = this.findMatches(code, pattern.pattern);
-      for (const match of matches) {
-        findings.push({
-          severity: pattern.severity,
-          category: pattern.type,
-          title: this.getTitle(pattern.type),
-          location: location,
-          evidence: this.truncate(match, 50),
-          recommendation: this.getRecommendation(pattern.type)
-        });
-      }
-    }
-
-    // Check environment access
-    for (const pattern of this.envAccessPatterns) {
-      const matches = this.findMatches(code, pattern.pattern);
-      for (const match of matches) {
-        findings.push({
-          severity: pattern.severity,
-          category: pattern.type,
-          title: this.getTitle(pattern.type),
-          location: location,
-          evidence: match,
-          recommendation: this.getRecommendation(pattern.type)
-        });
-      }
-    }
-
-    return findings;
-  }
-
-  /**
-   * Find all matches of a pattern in code
-   */
-  findMatches(code, pattern) {
-    const matches = [];
-    let match;
-
-    // Reset lastIndex for global patterns
-    const re = new RegExp(pattern.source, pattern.flags);
-
-    while ((match = re.exec(code)) !== null) {
-      matches.push(match[0]);
-      // Prevent infinite loop for zero-length matches
-      if (match.index === re.lastIndex) {
-        re.lastIndex++;
-      }
-    }
-
-    return matches;
-  }
-
-  /**
-   * Detect hidden code in HTML comments, etc.
-   */
-  detectHiddenCode(content) {
-    const findings = [];
-
-    // HTML comments containing code
-    const htmlCommentPattern = /<!--[\s\S]*?(eval|exec|execSync|spawn|curl|wget|import|require|child_process)/gi;
-    const htmlMatches = content.match(htmlCommentPattern);
-    if (htmlMatches) {
-      for (const match of htmlMatches) {
-        findings.push({
+  loadRules() {
+    return {
+      // ===== 执行风险 =====
+      execution: [
+        {
+          id: 'EXEC001',
+          pattern: /child_process.*exec\s*\(/,
           severity: 'HIGH',
-          category: 'hidden_code',
-          title: 'Hidden code in HTML comments',
-          location: 'inline:html',
-          evidence: this.truncate(match, 50),
-          recommendation: 'Remove code from HTML comments'
-        });
+          title: 'Shell 命令注入风险',
+          description: '检测到可能存在命令注入的 exec 调用',
+          cwe: 'CWE-78'
+        },
+        {
+          id: 'EXEC002',
+          pattern: /eval\s*\(/,
+          severity: 'HIGH',
+          title: '危险的 eval 使用',
+          description: '检测到 eval 执行动态代码',
+          cwe: 'CWE-95'
+        },
+        {
+          id: 'EXEC003',
+          pattern: /new\s+Function\s*\(/,
+          severity: 'MEDIUM',
+          title: '动态函数创建',
+          description: '检测到 new Function() 动态创建代码',
+          cwe: 'CWE-95'
+        },
+        {
+          id: 'EXEC004',
+          pattern: /execSync|execFileSync|spawnSync.*shell:\s*true/,
+          severity: 'HIGH',
+          title: '同步命令执行',
+          description: '检测到同步执行系统命令',
+          cwe: 'CWE-78'
+        },
+        {
+          id: 'EXEC005',
+          pattern: /process\.binding|sandbox.*escape|vm.*escape/,
+          severity: 'CRITICAL',
+          title: '沙箱逃逸尝试',
+          description: '检测到可能的沙箱逃逸行为',
+          cwe: 'CWE-265'
+        }
+      ],
+
+      // ===== 网络风险 =====
+      network: [
+        {
+          id: 'NET001',
+          pattern: /https?:\/\/[^\s]*\.(onion|i2p)/,
+          severity: 'CRITICAL',
+          title: '暗网连接',
+          description: '检测到连接暗网服务',
+          cwe: 'CWE-200'
+        },
+        {
+          id: 'NET002',
+          pattern: /fetch\s*\(\s*['"`].*localhost|127\.0\.0\.1/,
+          severity: 'MEDIUM',
+          title: '本地回环访问',
+          description: '检测到访问本地服务',
+          cwe: 'CWE-200'
+        },
+        {
+          id: 'NET003',
+          pattern: /http\.agent|rejectUnauthorized:\s*false/,
+          severity: 'MEDIUM',
+          title: '禁用证书验证',
+          description: '检测到禁用 HTTPS 证书验证',
+          cwe: 'CWE-295'
+        },
+        {
+          id: 'NET004',
+          pattern: /WebSocket|ws:\/\/|wss:\/\//,
+          severity: 'LOW',
+          title: 'WebSocket 连接',
+          description: '检测到 WebSocket 通信',
+          cwe: 'CWE-919'
+        },
+        {
+          id: 'NET005',
+          pattern: /socket\.connect|net\.connect|dial.*tcp/,
+          severity: 'MEDIUM',
+          title: '原始 TCP 连接',
+          description: '检测到底层网络连接',
+          cwe: 'CWE-200'
+        }
+      ],
+
+      // ===== 文件系统风险 =====
+      filesystem: [
+        {
+          id: 'FS001',
+          pattern: /\/\.ssh\/|\/\.aws\/|\/\.kube\/|\/\.docker\//,
+          severity: 'CRITICAL',
+          title: '敏感目录访问',
+          description: '检测到访问系统敏感目录',
+          cwe: 'CWE-200'
+        },
+        {
+          id: 'FS002',
+          pattern: /unlink|rmdir|rm\s+-rf/,
+          severity: 'HIGH',
+          title: '文件删除操作',
+          description: '检测到文件删除操作',
+          cwe: 'CWE-37'
+        },
+        {
+          id: 'FS003',
+          pattern: /chmod\s+[0-7][0-7][0-7]|chmod\s+\+[rx]/,
+          severity: 'MEDIUM',
+          title: '权限修改',
+          description: '检测到文件权限修改',
+          cwe: 'CWE-280'
+        },
+        {
+          id: 'FS004',
+          pattern: /appendFile|writeFile.*\/etc\/|\/root\//,
+          severity: 'HIGH',
+          title: '系统路径写入',
+          description: '检测到写入系统路径',
+          cwe: 'CWE-22'
+        },
+        {
+          id: 'FS005',
+          pattern: /readdir|readFile.*\/\.env|readFile.*password/,
+          severity: 'HIGH',
+          title: '敏感文件读取',
+          description: '检测到读取敏感文件',
+          cwe: 'CWE-200'
+        }
+      ],
+
+      // ===== 混淆检测 =====
+      obfuscation: [
+        {
+          id: 'OBF001',
+          pattern: /atob\s*\(|btoa\s*\(/,
+          severity: 'MEDIUM',
+          title: 'Base64 编解码',
+          description: '检测到 Base64 编码/解码操作',
+          cwe: 'CWE-327'
+        },
+        {
+          id: 'OBF002',
+          pattern: /\\\\x[0-9a-f]{2}|\\\\u[0-9a-f]{4}/,
+          severity: 'MEDIUM',
+          title: '十六进制/Unicode 编码',
+          description: '检测到十六进制或 Unicode 编码字符串',
+          cwe: 'CWE-173'
+        },
+        {
+          id: 'OBF003',
+          pattern: /\\u200b|\\u200c|\\u200d|\\u202e/,
+          severity: 'HIGH',
+          title: '零宽字符/双向文字',
+          description: '检测到隐藏字符注入',
+          cwe: 'CWE-116'
+        },
+        {
+          id: 'OBF004',
+          pattern: /fromCharCode|charCodeAt.*\d+\).*charCodeAt/,
+          severity: 'MEDIUM',
+          title: '字符串混淆',
+          description: '检测到字符串混淆技术',
+          cwe: 'CWE-173'
+        },
+        {
+          id: 'OBF005',
+          pattern: /replace\s*\(\s*\/[^\/]+\/\s*,\s*['"']/,
+          severity: 'LOW',
+          title: '字符串替换模式',
+          description: '检测到字符串替换操作',
+          cwe: 'CWE-561'
+        }
+      ],
+
+      // ===== 凭证/密钥风险 =====
+      credentials: [
+        {
+          id: 'CRED001',
+          pattern: /api[_-]?key\s*[=:]\s*['"][^'"]+['"]/i,
+          severity: 'HIGH',
+          title: '硬编码 API Key',
+          description: '检测到硬编码的 API Key',
+          cwe: 'CWE-798'
+        },
+        {
+          id: 'CRED002',
+          pattern: /password\s*[=:]\s*['"][^'"]+['"]/i,
+          severity: 'HIGH',
+          title: '硬编码密码',
+          description: '检测到硬编码的密码',
+          cwe: 'CWE-259'
+        },
+        {
+          id: 'CRED003',
+          pattern: /token\s*[=:]\s*['"][^'"]+['"]/i,
+          severity: 'MEDIUM',
+          title: '硬编码 Token',
+          description: '检测到硬编码的 Token',
+          cwe: 'CWE-798'
+        },
+        {
+          id: 'CRED004',
+          pattern: /process\.env\.[A-Z_]+KEY|process\.env\.SECRET/,
+          severity: 'LOW',
+          title: '环境变量读取',
+          description: '检测到读取环境变量',
+          cwe: 'CWE-526'
+        },
+        {
+          id: 'CRED005',
+          pattern: /-----BEGIN\s+(RSA|EC|DSA|OPENSSH)\s+PRIVATE\s+KEY-----/,
+          severity: 'CRITICAL',
+          title: '私钥泄露',
+          description: '检测到私钥内容',
+          cwe: 'CWE-312'
+        }
+      ],
+
+      // ===== 加密风险 =====
+      crypto: [
+        {
+          id: 'CRYP001',
+          pattern: /createCipher|createDecipher/,
+          severity: 'MEDIUM',
+          title: '弱加密算法',
+          description: '检测到使用已弃用的加密方法',
+          cwe: 'CWE-327'
+        },
+        {
+          id: 'CRYP002',
+          pattern: /randomBytes|crypto\.random.*sync/,
+          severity: 'LOW',
+          title: '加密随机数',
+          description: '检测到加密随机数使用',
+          cwe: 'CWE-338'
+        },
+        {
+          id: 'CRYP003',
+          pattern: /hash.*\(.*md5|sha1\s*\(.*\)/i,
+          severity: 'MEDIUM',
+          title: '弱哈希算法',
+          description: '检测到使用不安全的哈希算法',
+          cwe: 'CWE-327'
+        }
+      ],
+
+      // ===== 提示词注入风险 =====
+      promptInjection: [
+        {
+          id: 'INJ001',
+          pattern: /ignore\s+previous|disregard\s+all/i,
+          severity: 'HIGH',
+          title: '指令覆盖尝试',
+          description: '检测到试图覆盖之前的指令',
+          cwe: 'CWE-840'
+        },
+        {
+          id: 'INJ002',
+          pattern: /do\s+anything\s+now|DAN/i,
+          severity: 'CRITICAL',
+          title: '越狱指令',
+          description: '检测到已知的越狱提示词',
+          cwe: 'CWE-840'
+        },
+        {
+          id: 'INJ003',
+          pattern: /system\s*prompt|\\*\\*system\\*\\*/i,
+          severity: 'MEDIUM',
+          title: '系统提示词访问',
+          description: '检测到访问或修改系统提示词',
+          cwe: 'CWE-840'
+        },
+        {
+          id: 'INJ004',
+          pattern: /new\s+instruction|additional\s+instruction/i,
+          severity: 'HIGH',
+          title: '指令链注入',
+          description: '检测到追加指令的尝试',
+          cwe: 'CWE-840'
+        }
+      ]
+    };
+  }
+
+  /**
+   * 分析指定路径
+   */
+  async analyze(skillPath, options = {}) {
+    const results = {
+      filesScanned: 0,
+      linesScanned: 0,
+      findings: [],
+      summary: {}
+    };
+
+    // 收集所有可分析文件
+    const files = this.collectFiles(skillPath);
+
+    for (const file of files) {
+      const content = fs.readFileSync(file, 'utf-8');
+      results.filesScanned++;
+      results.linesScanned += content.split('\n').length;
+
+      // 执行所有规则检测
+      const fileFindings = this.scanContent(content, file);
+      results.findings.push(...fileFindings);
+    }
+
+    // 生成摘要
+    results.summary = this.generateSummary(results.findings);
+
+    return results;
+  }
+
+  /**
+   * 收集可分析文件
+   */
+  collectFiles(dir) {
+    const files = [];
+    const extensions = ['.js', '.ts', '.py', '.sh', '.bash', '.md'];
+
+    const scan = (d) => {
+      if (!fs.existsSync(d)) return;
+      const entries = fs.readdirSync(d, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        const fullPath = path.join(d, entry.name);
+
+        if (entry.isDirectory()) {
+          scan(fullPath);
+        } else if (extensions.includes(path.extname(entry.name))) {
+          files.push(fullPath);
+        }
       }
-    }
+    };
 
-    // Zero-width characters
-    if (/[\u200B\u200C\u200D\uFEFF]/.test(content)) {
-      findings.push({
-        severity: 'CRITICAL',
-        category: 'zero_width_characters',
-        title: 'Zero-width characters detected',
-        location: 'SKILL.md',
-        evidence: 'Zero-width unicode characters found in content',
-        recommendation: 'Remove all zero-width characters from content'
-      });
-    }
+    scan(dir);
+    return files;
+  }
 
-    // Bidi override
-    if (/[\u202A-\u202E]/.test(content)) {
-      findings.push({
-        severity: 'CRITICAL',
-        category: 'bidi_override',
-        title: 'Bidi override characters detected',
-        location: 'SKILL.md',
-        evidence: 'RTL/LTR override characters found',
-        recommendation: 'Remove all Bidi override characters'
-      });
+  /**
+   * 扫描内容
+   */
+  scanContent(content, filePath) {
+    const findings = [];
+
+    for (const [category, rules] of Object.entries(this.rules)) {
+      for (const rule of rules) {
+        if (rule.pattern.test(content)) {
+          findings.push({
+            id: rule.id,
+            category,
+            severity: rule.severity,
+            title: rule.title,
+            description: rule.description,
+            file: path.relative(process.cwd(), filePath),
+            cwe: rule.cwe
+          });
+        }
+      }
     }
 
     return findings;
   }
 
-  getTitle(type) {
-    const titles = {
-      'dynamic_execution': 'Dynamic code execution detected',
-      'dynamic_import': 'Dynamic module import detected',
-      'dynamic_compilation': 'Dynamic code compilation detected',
-      'dynamic_function': 'Dynamic function creation detected',
-      'command_execution': 'Command execution capability detected',
-      'process_spawning': 'Process spawning detected',
-      'shell_execution': 'Shell execution detected',
-      'credential_exfiltration': 'Credential exfiltration pattern detected',
-      'data_exfiltration': 'Data exfiltration pattern detected',
-      'reverse_shell': 'Reverse shell pattern detected',
-      'command_injection': 'Command injection vulnerability',
-      'shell_injection': 'Shell injection vulnerability',
-      'sensitive_file_read': 'Sensitive file read attempt',
-      'credential_access': 'Credential access detected',
-      'persistence': 'Persistence mechanism detected',
-      'privilege_escalation': 'Privilege escalation attempt',
-      'code_obfuscation': 'Code obfuscation detected',
-      'obfuscated_execution': 'Obfuscated execution detected',
-      'jsfuck_obfuscation': 'JSFuck obfuscation detected',
-      'hex_obfuscation': 'Hex-encoded string detected',
-      'unicode_obfuscation': 'Unicode escape sequence detected',
-      'zero_width_characters': 'Zero-width characters detected',
-      'bidi_override': 'Bidi override characters detected',
-      'base64_decode': 'Base64 decoding detected',
-      'base64_encode': 'Base64 encoding detected',
-      'string_splitting': 'String splitting detected',
-      'env_access': 'Environment variable access detected',
+  /**
+   * 生成摘要
+   */
+  generateSummary(findings) {
+    const summary = {
+      total: findings.length,
+      bySeverity: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 },
+      byCategory: {}
     };
-    return titles[type] || type;
-  }
 
-  getRecommendation(type) {
-    const recommendations = {
-      'dynamic_execution': 'Avoid using eval/exec with user input',
-      'dynamic_import': 'Use static imports instead of dynamic imports',
-      'reverse_shell': 'This pattern indicates potential malicious code',
-      'credential_exfiltration': 'Review for accidental credential leakage',
-      'persistence': 'Document why persistence is required',
-      'privilege_escalation': 'Avoid privilege escalation attempts',
-      'zero_width_characters': 'Remove zero-width characters from content',
-      'bidi_override': 'Remove Bidi override characters',
-    };
-    return recommendations[type] || 'Review and verify this code is necessary';
-  }
+    findings.forEach(f => {
+      summary.bySeverity[f.severity]++;
+      summary.byCategory[f.category] = (summary.byCategory[f.category] || 0) + 1;
+    });
 
-  truncate(str, len) {
-    if (str.length <= len) return str;
-    return str.substring(0, len) + '...';
+    return summary;
   }
 }
 

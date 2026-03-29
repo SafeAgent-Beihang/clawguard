@@ -1,0 +1,30 @@
+{
+  "name": "clawguard-v3",
+  "version": "3.0.0",
+  "description": "ClawGuard v3 - Enterprise AI Agent Security Toolkit",
+  "private": true,
+  "workspaces": [
+    "auditor-skill",
+    "checker-skill",
+    "detect-skill",
+    "guardian-skill",
+    "shield-skill"
+  ],
+  "scripts": {
+    "audit": "node auditor-skill/cli.js",
+    "check": "node checker-skill/cli.js",
+    "detect": "node detect-skill/cli.js",
+    "guardian": "node guardian-skill/cli.js",
+    "shield": "node shield-skill/cli.js"
+  },
+  "keywords": [
+    "clawguard",
+    "security",
+    "openclaw",
+    "ai-agent",
+    "runtime-protection",
+    "prompt-injection"
+  ],
+  "author": "ClawGuard Team",
+  "license": "MIT"
+}

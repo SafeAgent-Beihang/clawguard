@@ -1,160 +1,91 @@
 /**
- * ClawGuard Supply Chain Analyzer
- *
- * Analyzes Skill dependencies for security risks
- * Includes CVE scanning, typosquatting detection, and registry verification
+ * ClawGuard v3 - 供应链分析器
+ * CVE 漏洞检测、域名仿冒检测
  */
 
+const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 class SupplyChainAnalyzer {
   constructor() {
-    // Known typosquatting targets
-    this.typosquattingTargets = [
-      'react', 'vue', 'angular', 'express', 'lodash', 'axios', 'moment', 'jquery',
-      'underscore', 'async', 'request', 'chalk', 'debug', 'bluebird', 'joi',
-      'mongoose', 'express', 'koa', 'hapi', 'fastify', 'socket.io', 'ws',
-      'npm', 'yarn', 'pnpm', 'node', 'python', 'pip', 'pipenv', 'poetry'
+    // 常见的域名仿冒模式
+    this.typosquattingPatterns = [
+      { typo: 'l', replacement: '1', examples: ['1l', 'il'] },
+      { typo: 'o', replacement: '0', examples: ['0o', 'o0'] },
+      { typo: 'rn', replacement: 'm', examples: ['rnm'] },
+      { typo: 's', replacement: '5', examples: ['5', 's'] }
     ];
 
-    // Suspicious patterns in package names
-    this.suspiciousPatterns = [
-      /^npm-/,
-      /^node-/,
-      /^lib-/,
-      /^utils-/,
-      /-secure$/,
-      /-safe$/,
-      /^-/,
-      /-$/
+    // 高风险域名列表（示例）
+    this.knownMaliciousDomains = [
+      'npm.malicious-package.com',
+      'registry.npmjs.su',
+      'pypi.malicious.com'
     ];
-
-    // Critical CVEs cache
-    this.cveCache = new Map();
   }
 
   /**
-   * Find all dependencies in skill directory
+   * 分析供应链风险
    */
-  findDependencies(skillPath) {
-    const dependencies = [];
-
-    // Check package.json
-    const packageJsonPath = path.join(skillPath, 'package.json');
-    if (fs.existsSync(packageJsonPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-        const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-        for (const [name, version] of Object.entries(deps)) {
-          dependencies.push({
-            name,
-            version,
-            type: 'npm',
-            source: 'package.json'
-          });
-        }
-      } catch (e) {
-        console.error('Error parsing package.json:', e.message);
-      }
-    }
-
-    // Check requirements.txt
-    const requirementsPath = path.join(skillPath, 'requirements.txt');
-    if (fs.existsSync(requirementsPath)) {
-      try {
-        const content = fs.readFileSync(requirementsPath, 'utf-8');
-        const lines = content.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith('#')) {
-            const match = trimmed.match(/^([a-zA-Z0-9_-]+)\s*(?:([><=!~]+)\s*(\d+\.\d+.*))?/);
-            if (match) {
-              dependencies.push({
-                name: match[1],
-                version: match[3] || 'latest',
-                type: 'python',
-                source: 'requirements.txt'
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Error parsing requirements.txt:', e.message);
-      }
-    }
-
-    // Check go.mod
-    const goModPath = path.join(skillPath, 'go.mod');
-    if (fs.existsSync(goModPath)) {
-      try {
-        const content = fs.readFileSync(goModPath, 'utf-8');
-        const lines = content.split('\n');
-        let inRequire = false;
-        for (const line of lines) {
-          if (line.startsWith('require (')) {
-            inRequire = true;
-            continue;
-          }
-          if (inRequire && line.trim() === ')') {
-            inRequire = false;
-            continue;
-          }
-          if (inRequire) {
-            const match = line.trim().match(/^([^\s]+)\s+(.+)$/);
-            if (match) {
-              dependencies.push({
-                name: match[1],
-                version: match[2],
-                type: 'go',
-                source: 'go.mod'
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.error('Error parsing go.mod:', e.message);
-      }
-    }
-
-    return dependencies;
-  }
-
-  /**
-   * Check for vulnerabilities in dependencies
-   */
-  async checkVulnerabilities(dependencies) {
+  async analyze(skillInfo) {
     const results = {
-      critical: 0,
-      high: 0,
-      medium: 0,
-      low: 0,
-      details: []
+      findings: [],
+      hasVulnerabilities: false,
+      hasTyposquatting: false,
+      packageAnalysis: null,
+      versionAnalysis: null
     };
 
-    // Simulated CVE database (in production, would query real CVE databases)
-    const knownVulnerabilities = {
-      'lodash': { versions: ['<4.17.21'], cve: 'CVE-2021-23337', severity: 'high' },
-      'axios': { versions: ['<0.21.1'], cve: 'CVE-2020-28168', severity: 'medium' },
-      'moment': { versions: ['<2.29.2'], cve: 'CVE-2022-24785', severity: 'medium' },
-      'json5': { versions: ['<1.0.2'], cve: 'CVE-2022-46175', severity: 'critical' },
-      'ua-parser-js': { versions: ['<0.7.31'], cve: 'CVE-2022-25927', severity: 'critical' },
-    };
+    // 1. 检查 package.json（如果有）
+    const pkgPath = path.join(skillInfo.path, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        results.packageAnalysis = await this.analyzeDependencies(pkg);
 
-    for (const dep of dependencies) {
-      const vuln = knownVulnerabilities[dep.name];
-      if (vuln) {
-        // Check if version is vulnerable
-        if (this.isVersionVulnerable(dep.version, vuln.versions)) {
-          results[vuln.severity]++;
-          results.details.push({
-            package: dep.name,
-            version: dep.version,
-            cve: vuln.cve,
-            severity: vuln.severity
-          });
+        if (results.packageAnalysis.hasRisks) {
+          results.hasVulnerabilities = true;
+          results.findings.push(...results.packageAnalysis.findings);
         }
+      } catch (e) {
+        results.findings.push({
+          category: 'supply_chain',
+          severity: 'INFO',
+          title: '依赖分析跳过',
+          description: `无法解析 package.json: ${e.message}`
+        });
+      }
+    }
+
+    // 2. 检查 Skill 名称域名仿冒
+    if (skillInfo.name) {
+      const typosquattingResult = this.checkTyposquatting(skillInfo.name);
+      if (typosquattingResult.isSuspicious) {
+        results.hasTyposquatting = true;
+        results.findings.push({
+          category: 'supply_chain',
+          severity: 'CRITICAL',
+          title: '可能的域名仿冒',
+          description: `Skill 名称 "${skillInfo.name}" 可能存在域名仿冒风险`,
+          details: typosquattingResult.details,
+          recommendation: '建议从官方渠道验证 Skill 的真实性'
+        });
+      }
+    }
+
+    // 3. 检查版本号
+    if (skillInfo.metadata && skillInfo.metadata.version) {
+      results.versionAnalysis = this.checkVersion(skillInfo.metadata.version);
+      if (!results.versionAnalysis.isLatest) {
+        results.findings.push({
+          category: 'supply_chain',
+          severity: 'WARNING',
+          title: '版本不是最新',
+          description: `当前版本 ${skillInfo.metadata.version}，建议检查是否有更新`,
+          recommendation: '建议升级到最新版本以获得安全修复'
+        });
       }
     }
 
@@ -162,96 +93,157 @@ class SupplyChainAnalyzer {
   }
 
   /**
-   * Check if version is vulnerable
+   * 分析依赖
    */
-  isVersionVulnerable(currentVersion, vulnerableRanges) {
-    // Simplified version checking
-    // In production, would use semver library
-    for (const range of vulnerableRanges) {
-      if (range.includes('<') && currentVersion !== 'latest') {
-        const [, minVersion] = range.split('<');
-        if (this.compareVersions(currentVersion, minVersion.trim()) < 0) {
-          return true;
+  async analyzeDependencies(pkg) {
+    const results = {
+      dependencies: [],
+      devDependencies: [],
+      findings: [],
+      hasRisks: false,
+      riskSummary: { critical: 0, high: 0, medium: 0 }
+    };
+
+    // 分析 dependencies
+    if (pkg.dependencies) {
+      for (const [name, version] of Object.entries(pkg.dependencies)) {
+        const analysis = this.analyzeDependency(name, version);
+        results.dependencies.push(analysis);
+
+        if (analysis.isRisky) {
+          results.hasRisks = true;
+          results.riskSummary[analysis.severity]++;
+          results.findings.push({
+            category: 'supply_chain',
+            severity: analysis.severity === 'CRITICAL' ? 'CRITICAL' : 'HIGH',
+            title: `依赖风险: ${name}`,
+            description: analysis.reason,
+            recommendation: `考虑升级到安全版本或使用替代方案`
+          });
         }
       }
     }
-    return false;
-  }
 
-  /**
-   * Simple version comparison
-   */
-  compareVersions(v1, v2) {
-    const p1 = v1.split('.').map(n => parseInt(n) || 0);
-    const p2 = v2.split('.').map(n => parseInt(n) || 0);
-
-    for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-      const n1 = p1[i] || 0;
-      const n2 = p2[i] || 0;
-      if (n1 > n2) return 1;
-      if (n1 < n2) return -1;
+    // 分析 devDependencies
+    if (pkg.devDependencies) {
+      for (const [name, version] of Object.entries(pkg.devDependencies)) {
+        const analysis = this.analyzeDependency(name, version);
+        results.devDependencies.push(analysis);
+      }
     }
-    return 0;
+
+    return results;
   }
 
   /**
-   * Detect typosquatting attempts
+   * 分析单个依赖
    */
-  detectTyposquatting(dependencies) {
-    const risks = [];
+  analyzeDependency(name, version) {
+    const result = {
+      name,
+      version,
+      isRisky: false,
+      severity: 'LOW',
+      reason: ''
+    };
 
-    for (const dep of dependencies) {
-      const name = dep.name.toLowerCase();
+    // 检查是否包含 @
+    if (name.startsWith('@')) {
+      result.isRisky = true;
+      result.severity = 'MEDIUM';
+      result.reason = '使用了组织作用域包';
+    }
 
-      // Check for exact match to known packages
-      if (this.typosquattingTargets.includes(name)) {
-        risks.push({
-          package: dep.name,
-          type: 'typosquatting',
-          target: name,
-          severity: 'HIGH',
-          message: `Package name '${dep.name}' matches popular package '${name}'`
+    // 检查版本是否为空或 *
+    if (!version || version === '*' || version === 'latest') {
+      result.isRisky = true;
+      result.severity = 'MEDIUM';
+      result.reason = result.reason || '依赖版本未锁定';
+    }
+
+    // 检查可疑的包名
+    const suspiciousPatterns = [
+      /^[a-z]+-[a-z]+-[a-z]+$/i,  // 格式: word-word-word
+      /^(eval|exec|system|run|test)-/i,  // 可疑前缀
+      /-(eval|exec|system|run|test)$/i   // 可疑后缀
+    ];
+
+    for (const pattern of suspiciousPatterns) {
+      if (pattern.test(name)) {
+        result.isRisky = true;
+        result.severity = 'HIGH';
+        result.reason = '包名符合可疑模式';
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 检查域名仿冒
+   */
+  checkTyposquatting(skillName) {
+    const result = {
+      isSuspicious: false,
+      details: []
+    };
+
+    // 常见的目标包名
+    const popularPackages = [
+      'axios', 'lodash', 'express', 'react', 'vue', 'webpack',
+      'babel', 'eslint', 'prettier', 'typescript', 'node-fetch',
+      'moment', 'async', 'request', 'bluebird', 'chalk', 'commander'
+    ];
+
+    const nameLower = skillName.toLowerCase().replace(/^claw-/, '').replace(/^claw/, '');
+
+    // 检查是否为流行包的变体
+    for (const pkg of popularPackages) {
+      const distance = this.levenshteinDistance(nameLower, pkg);
+
+      // 1-2 个字符差异视为可疑
+      if (distance >= 1 && distance <= 2) {
+        result.isSuspicious = true;
+        result.details.push({
+          original: pkg,
+          suspected: skillName,
+          distance: distance,
+          risk: '可能的域名仿冒包'
         });
-        continue;
       }
+    }
 
-      // Check for close match (1-2 character difference)
-      for (const target of this.typosquattingTargets) {
-        const distance = this.levenshteinDistance(name, target);
-        if (distance > 0 && distance <= 2) {
-          risks.push({
-            package: dep.name,
-            type: 'typosquatting',
-            target: target,
-            severity: 'MEDIUM',
-            message: `Package name '${dep.name}' is similar to '${target}' (distance: ${distance})`
-          });
-        }
-      }
+    // 检查特殊字符混淆
+    if (/[0-9]/.test(nameLower) && /[a-z]/.test(nameLower)) {
+      // 数字和字母混合
+      const letterCount = (nameLower.match(/[a-z]/g) || []).length;
+      const digitCount = (nameLower.match(/[0-9]/g) || []).length;
 
-      // Check for suspicious patterns
-      for (const pattern of this.suspiciousPatterns) {
-        if (pattern.test(name)) {
-          risks.push({
-            package: dep.name,
-            type: 'suspicious_pattern',
-            pattern: pattern.toString(),
-            severity: 'MEDIUM',
-            message: `Package name '${dep.name}' matches suspicious pattern`
-          });
+      if (letterCount >= 3 && digitCount >= 1 && digitCount <= 2) {
+        // 可能是用数字替换字母（如 l=1, o=0）
+        for (const pkg of popularPackages) {
+          if (this.levenshteinDistance(nameLower.replace(/[0-9]/g, ''), pkg) <= 1) {
+            result.isSuspicious = true;
+            result.details.push({
+              original: pkg,
+              suspected: skillName,
+              risk: '可能使用数字混淆的仿冒包'
+            });
+          }
         }
       }
     }
 
-    return risks;
+    return result;
   }
 
   /**
-   * Calculate Levenshtein distance
+   * Levenshtein 距离计算
    */
-  levenshteinDistance(s1, s2) {
-    const m = s1.length;
-    const n = s2.length;
+  levenshteinDistance(str1, str2) {
+    const m = str1.length;
+    const n = str2.length;
     const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
 
     for (let i = 0; i <= m; i++) dp[i][0] = i;
@@ -259,13 +251,13 @@ class SupplyChainAnalyzer {
 
     for (let i = 1; i <= m; i++) {
       for (let j = 1; j <= n; j++) {
-        if (s1[i - 1] === s2[j - 1]) {
+        if (str1[i - 1] === str2[j - 1]) {
           dp[i][j] = dp[i - 1][j - 1];
         } else {
           dp[i][j] = Math.min(
-            dp[i - 1][j] + 1,
-            dp[i][j - 1] + 1,
-            dp[i - 1][j - 1] + 1
+            dp[i - 1][j] + 1,    // 删除
+            dp[i][j - 1] + 1,    // 插入
+            dp[i - 1][j - 1] + 1 // 替换
           );
         }
       }
@@ -275,26 +267,34 @@ class SupplyChainAnalyzer {
   }
 
   /**
-   * Analyze registry trust
+   * 检查版本
    */
-  analyzeRegistryTrust(dependencies) {
-    const scores = {
-      npm: 80,
-      pypi: 80,
-      go: 75,
-      cargo: 70,
-      maven: 70,
-      unknown: 30
+  checkVersion(version) {
+    const result = {
+      version,
+      isLatest: true,
+      isOutdated: false,
+      isPreRelease: false
     };
 
-    const types = [...new Set(dependencies.map(d => d.type))];
-    const avgScore = types.reduce((sum, t) => sum + (scores[t] || scores.unknown), 0) / types.length;
+    // 检测预发布版本
+    if (version.includes('alpha') || version.includes('beta') || version.includes('rc')) {
+      result.isPreRelease = true;
+      result.isLatest = false;
+    }
 
-    return {
-      score: avgScore,
-      types: types,
-      recommendation: avgScore >= 70 ? 'Trust acceptable' : 'Review dependencies'
-    };
+    // 检测过期版本（x.x.x 格式的旧版本）
+    const versionMatch = version.match(/^(\d+)\.(\d+)\.(\d+)/);
+    if (versionMatch) {
+      const [, major] = versionMatch.map(Number);
+      // 如果主版本号很小，可能是旧版本
+      if (major < 1) {
+        result.isOutdated = true;
+        result.isLatest = false;
+      }
+    }
+
+    return result;
   }
 }
 

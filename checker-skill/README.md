@@ -1,131 +1,128 @@
-# 🛡️ ClawGuard Checker (CG-SC)
+# 🔧 ClawGuard Checker
 
-**ClawGuard Checker** is a comprehensive security configuration analyzer and runtime integrity verifier for OpenClaw environments. It provides continuous security posture monitoring to ensure your agent deployment is properly configured and secure.
+OpenClaw 配置安全检查器，支持智能加固建议。
 
-## 🌟 Why ClawGuard Checker?
+## 通过 Agent 使用（推荐）
 
-Even with a secure agent, misconfiguration can lead to vulnerabilities. ClawGuard Checker verifies:
+### 触发方式
 
-- **Configuration Security**: Are your config files properly set up?
-- **Credential Exposure**: Are API keys and secrets protected?
-- **Permission Modeling**: Are file permissions correctly configured?
-- **Runtime Integrity**: Have system files been tampered with?
-- **Network Security**: Is your deployment properly isolated?
-- **Compliance**: Do you meet security benchmarks?
-
-## 🚀 How to Install & Load ClawGuard Checker
-
-Place the `checker-skill` folder in your OpenClaw skills directory:
+当用户说以下内容时，Agent 会自动读取本 SKILL.md 并执行检查：
 
 ```
-/workspace/skills/clawguard-checker/
+"检查配置安全"
+"安全体检"
+"加固配置"
+"如何让配置更安全"
+"配置有什么风险"
 ```
 
-Then load it:
-
-> *"Please load and activate the security checker at `path/to/ClawGuard/checker-skill`"*
-
-## 🛡️ How to Use ClawGuard Checker
-
-### Manual Security Check
-
-Run a full security check:
-
-> *"Run a security check on this OpenClaw instance"*
-
-### Automated Scheduling
-
-Configure automatic checks in your OpenClaw configuration:
-
-```json
-{
-  "security": {
-    "clawguard": {
-      "checker": {
-        "enabled": true,
-        "schedule": "0 2 * * *"
-      }
-    }
-  }
-}
-```
-
-## 🔍 What Does ClawGuard Checker Analyze?
-
-### 1. Configuration Security
-
-Checks your `openclaw.json` for:
-- Gateway binding (should be localhost, not 0.0.0.0)
-- TLS encryption enabled
-- Device authentication enabled
-- Proper CORS configuration
-- Tools profile (should be restricted, not full)
-
-### 2. Credential Exposure Detection
-
-Multi-layer scanning for exposed secrets:
-- API keys (OpenAI, Anthropic, AWS, GitHub, etc.)
-- Private keys and certificates
-- Database credentials
-- Environment variables with secrets
-
-### 3. Permission Modeling
-
-Verifies correct file permissions:
-- Config files should be 600 (owner only)
-- Directories should be 700
-- No world-readable sensitive files
-- Not running as root
-
-### 4. Runtime Integrity
-
-Uses cryptographic verification:
-- SHA-256 baseline hashes
-- Merkle tree verification
-- Signature validation
-
-### 5. Network Security
-
-Analyzes network configuration:
-- Port binding
-- Trusted proxies
-- Egress restrictions
-- Rate limiting
-
-### 6. Log Forensics
-
-Analyzes audit logs for:
-- Authentication failures
-- Privilege escalation attempts
-- Data exfiltration patterns
-- Red line triggers
-
-## 📊 Security Grades
-
-| Grade | Score | Color | Action |
-|-------|-------|-------|--------|
-| A+ | 95-100 | 🟢 | Excellent |
-| A | 90-94 | 🟢 | Good |
-| B | 80-89 | 🟢 | Satisfactory |
-| C | 70-79 | 🟡 | Fair - Fix within 1 week |
-| D | 60-69 | 🟠 | Poor - Fix within 24 hours |
-| F | 0-59 | 🔴 | Critical - Fix immediately |
-
-## 📁 Project Structure
+### 示例对话
 
 ```
-checker-skill/
-├── SKILL.md              # Skill definition and documentation
-├── README.md             # This file
-├── cli.js                # Command-line interface
-└── src/
-    └── checker.js        # Core security checking engine
+用户: 帮我检查一下 OpenClaw 的配置安全
+
+Agent: 正在检查配置...
+      (读取 openclaw.json，按指南检测)
+      ↓
+📋 发现的问题:
+   1. 🔴 Gateway 绑定到 0.0.0.0
+      修复: 将 bind 改为 "127.0.0.1"
+   2. 🔴 命令执行模式为 full
+      修复: 改为 "allowlist" 模式
+   3. 🟠 沙箱未启用
+      修复: 设置 sandbox.enabled = true
+
+建议运行: node cli.js --fix 生成加固配置
 ```
-
-## ⚠️ Disclaimer
-
-ClawGuard Checker is a security tool designed to reduce risk, but cannot guarantee 100% protection. Always follow the principle of least privilege when deploying autonomous agents.
 
 ---
 
-**ClawGuard Checker: Vigilant protection for your AI agents.** 🦅
+## 通过命令行使用
+
+### 基本用法
+
+```bash
+# 进入目录
+cd checker-skill && node cli.js
+
+# 检查默认配置（自动查找 ~/.openclaw/openclaw.json）
+node cli.js
+
+# 检查指定配置
+node cli.js ~/.openclaw/openclaw.json
+
+# 深度检查
+node cli.js --deep
+
+# 生成加固配置
+node cli.js --fix
+
+# 指定配置文件并生成加固
+node cli.js ~/.openclaw/openclaw.json --fix
+
+# 输出报告
+node cli.js --output report.json
+```
+
+### 加固配置示例
+
+```bash
+# 生成加固配置
+node cli.js ~/.openclaw/openclaw.json --fix
+
+# 输出: openclaw.json.hardened.json
+# 手动应用:
+cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.backup
+cp ~/.openclaw/openclaw.json.hardened.json ~/.openclaw/openclaw.json
+```
+
+### 输出示例
+
+```
+🔧 ClawGuard v3 Checker - 配置检查中...
+
+╔═══════════════════════════════════════════════════════════════╗
+║              🔧 配置安全检查报告                             ║
+╠═══════════════════════════════════════════════════════════════╣
+║  配置文件: ~/.openclaw/openclaw.json                       ║
+║  风险评分: 45/100                                       ║
+║  最高风险: 🟠 高危                                      ║
+║  发现问题: 3 项                                         ║
+╚═══════════════════════════════════════════════════════════════╝
+
+⚠️  发现问题:
+
+1. 🔴 [Gateway 绑定地址]
+   问题: Gateway 绑定到 0.0.0.0，暴露公网
+   修复: 将 bind 改为 "127.0.0.1"
+
+2. 🔴 [命令执行模式]
+   问题: tools.exec.security = "full"
+   修复: 改为 "allowlist" 模式
+
+🛡️ 加固配置已生成: openclaw.json.hardened.json
+```
+
+---
+
+## 检测项目
+
+| 检测项 | 风险 | 说明 |
+|--------|------|------|
+| Gateway 绑定 0.0.0.0 | 🔴 | 暴露公网 |
+| 未启用认证 | 🔴 | 无访问控制 |
+| security: "full" | 🔴 | 允许任意命令 |
+| TLS 未启用 | 🟠 | 通信未加密 |
+| 沙箱未启用 | 🟠 | 无隔离 |
+
+---
+
+## 相关模块
+
+- **Auditor** - Skill 安装前审计
+- **Shield** - 提示词注入检测
+- **Guardian** - 运行时守护
+
+---
+
+*版本: v3.0.0*

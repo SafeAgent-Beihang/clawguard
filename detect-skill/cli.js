@@ -6,6 +6,8 @@
  */
 
 const ThreatDetector = require('./src/detector');
+const path = require('path');
+const { spawn } = require('child_process');
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -24,6 +26,29 @@ detector.on('threat', (alert) => {
   console.log(`   Severity: ${alert.severity}`);
   console.log(`   Type: ${alert.type}`);
   console.log(`   Confidence: ${(alert.confidence * 100).toFixed(1)}%`);
+
+  // Trigger self-improving safety learning
+  try {
+    const safetyCliPath = path.join(__dirname, '../self-improving-safety/cli.js');
+    
+    let threatInfo = `THREAT DETECTED\nSeverity: ${alert.severity}\nType: ${alert.type}\n`;
+    if (alert.details) {
+      if (alert.details.command) threatInfo += `Command: ${alert.details.command}\n`;
+      if (alert.details.url) threatInfo += `Command: ${alert.details.url}\n`; // Map URL to command for learning potential
+      if (alert.details.filePath) threatInfo += `File Access: ${alert.details.filePath}\n`;
+    }
+
+    console.log('   [Self-Learning] Invoking safety module...');
+    const child = spawn(process.execPath, [safetyCliPath, 'learn'], {
+      stdio: ['pipe', 'inherit', 'inherit']
+    });
+
+    child.stdin.write(threatInfo);
+    child.stdin.end();
+
+  } catch (err) {
+    console.error('   [Self-Learning] Error:', err.message);
+  }
 });
 
 if (command === 'monitor') {

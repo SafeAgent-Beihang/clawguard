@@ -1,0 +1,170 @@
+[
+  {
+    "id": "block-rm-root",
+    "pattern": "rm -rf (\\/|\\/\\.|\\/\\.\\.|\\/etc\\/|\\/usr\\/)",
+    "description": "Prevent deletion of root or critical system directories",
+    "severity": "critical",
+    "source": "initial-rule"
+  },
+  {
+    "id": "block-wget-suspicious",
+    "pattern": "wget (.*\\.sh|.*\\.py|.*\\.exe) -O \\/tmp\\/.*",
+    "description": "Prevent downloading executable scripts to tmp folder without verification",
+    "severity": "high",
+    "source": "initial-rule"
+  },
+  {
+    "id": "block-jailbreak-classic",
+    "pattern": "(ignore previous instructions|do anything now|DAN mode|jailbreak)",
+    "description": "Prevent common jailbreak prompting",
+    "severity": "medium",
+    "source": "initial-rule"
+  },
+  {
+    "id": "block-reverse-shell-bash",
+    "pattern": "(?:bash|sh|zsh)\\s*>\\s*&?\\s*/dev/(?:tcp|udp)/",
+    "description": "Prevent standard bash reverse shell via /dev/tcp",
+    "severity": "critical",
+    "source": "initial-rule"
+  },
+  {
+    "id": "block-sensitive-files",
+    "pattern": "cat\\s+.*(?:/etc/shadow|\\.ssh/|id_rsa|\\.aws/credentials)",
+    "description": "Prevent reading of sensitive system or credential files",
+    "severity": "critical",
+    "source": "initial-rule"
+  },
+  {
+    "id": "block-obfuscated-exec",
+    "pattern": "base64\\s+-d\\s*\\|\\s*(bash|sh|python)",
+    "description": "Prevent execution of base64 encoded payloads",
+    "severity": "high",
+    "source": "initial-rule"
+  },
+  {
+    "id": "block-fork-bomb",
+    "pattern": ":\\s*\\(\\)\\s*\\{\\s*:\\s*\\|\\s*:&\\s*\\};:",
+    "description": "Prevent classic fork bomb",
+    "severity": "critical",
+    "source": "initial-rule"
+  },
+  {
+    "id": "block-netcat-exec",
+    "pattern": "(nc|netcat|ncat|socat)\\s+.*(?:-e|exec['\"]?[:\\s])",
+    "description": "Prevent netcat/socat execution of shells",
+    "severity": "high",
+    "source": "initial-rule"
+  },
+  {
+    "id": "block-prompt-leak",
+    "pattern": "(show|reveal|print).*(system prompt|hidden prompt|internal prompt)",
+    "description": "Prevent attempts to reveal hidden system prompts",
+    "severity": "high",
+    "source": "security-report"
+  },
+  {
+    "id": "block-ignore-safety",
+    "pattern": "(ignore|bypass).*(safety|security|policy|guardrails)",
+    "description": "Prevent attempts to bypass safety policies",
+    "severity": "high",
+    "source": "security-report"
+  },
+  {
+    "id": "block-dev-mode",
+    "pattern": "(developer mode|debug mode|admin mode).*enable",
+    "description": "Prevent enabling hidden developer or admin modes via prompts",
+    "severity": "medium",
+    "source": "security-report"
+  },
+  {
+    "id": "block-env-secret",
+    "pattern": "(printenv|env|set)\\s*\\|?.*(API_KEY|SECRET|TOKEN|PASSWORD)",
+    "description": "Prevent reading environment secrets",
+    "severity": "critical",
+    "source": "security-report"
+  },
+  {
+    "id": "block-curl-exfil",
+    "pattern": "curl\\s+.*(-d|--data|--upload-file)",
+    "description": "Prevent potential data exfiltration using curl",
+    "severity": "high",
+    "source": "security-report"
+  },
+  {
+    "id": "block-ssh-key-access",
+    "pattern": "cat\\s+.*(?:\\.ssh/id_rsa|\\.ssh/id_ed25519)",
+    "description": "Prevent reading SSH private keys",
+    "severity": "critical",
+    "source": "security-report"
+  },
+  {
+    "id": "block-docker-socket",
+    "pattern": "/var/run/docker.sock",
+    "description": "Prevent access to Docker socket which can lead to container escape",
+    "severity": "critical",
+    "source": "security-report"
+  },
+  {
+    "id": "block-chmod-system",
+    "pattern": "chmod\\s+777\\s+/(?:etc|usr|bin|root)",
+    "description": "Prevent dangerous permission modification on system directories",
+    "severity": "high",
+    "source": "security-report"
+  },
+  {
+    "id": "block-sudo-shell",
+    "pattern": "sudo\\s+(bash|sh|zsh)",
+    "description": "Prevent privilege escalation through sudo shell spawning",
+    "severity": "critical",
+    "source": "security-report"
+  },
+  {
+    "id": "block-python-subprocess-shell",
+    "pattern": "subprocess\\.(Popen|call|run).*shell=True",
+    "description": "Prevent unsafe Python subprocess shell execution",
+    "severity": "high",
+    "source": "security-report"
+  },
+  {
+    "id": "block-pip-remote-install",
+    "pattern": "pip\\s+install\\s+https?://",
+    "description": "Prevent installing packages directly from remote URLs",
+    "severity": "medium",
+    "source": "security-report"
+  },
+  {
+    "id": "block-git-remote-script",
+    "pattern": "git\\s+clone\\s+https?://.*\\|\\s*(bash|sh)",
+    "description": "Prevent execution of scripts directly from git repositories",
+    "severity": "high",
+    "source": "security-report"
+  },
+  {
+    "id": "block-system-info-leak",
+    "pattern": "(uname -a|lsb_release -a|cat /etc/os-release)",
+    "description": "Prevent leaking system environment information",
+    "severity": "medium",
+    "source": "security-report"
+  },
+  {
+    "id": "block-network-scan",
+    "pattern": "(nmap|masscan|netdiscover)",
+    "description": "Prevent network scanning activities",
+    "severity": "high",
+    "source": "security-report"
+  },
+  {
+    "id": "block-secret-key-extraction",
+    "pattern": "(secret key|api key|access token|auth token).*(get|show|reveal|extract|steal)",
+    "description": "Prevent attempts to extract or reveal secret keys and tokens",
+    "severity": "critical",
+    "source": "self-learning-2026-03-26"
+  },
+  {
+    "id": "ssh-key-persistence",
+    "pattern": "(authorized_keys|\\.ssh\\/authorized_keys|\\.ssh\\\\authorized_keys)",
+    "description": "Prevent SSH authorized_keys access for persistence attacks",
+    "severity": "critical",
+    "source": "threat-detect-auto-learn-2026-03-26"
+  }
+]
